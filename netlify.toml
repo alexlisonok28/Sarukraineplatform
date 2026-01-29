@@ -1,0 +1,53 @@
+# Netlify Configuration for SAR Ukraine Platform
+
+[build]
+  # Команда для збірки проекту
+  command = "npm run build"
+  
+  # Директорія з готовою збіркою
+  publish = "dist"
+  
+  # Змінні оточення для збірки
+  [build.environment]
+    NODE_VERSION = "18"
+
+# Редіректи для SPA (Single Page Application)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Налаштування функцій (якщо використовуються Netlify Functions)
+[functions]
+  directory = "netlify/functions"
+
+# Заголовки безпеки
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Захист від XSS атак
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    
+    # Content Security Policy
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://images.unsplash.com;"
+    
+    # Referrer Policy
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Оптимізація кешування статичних файлів
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
