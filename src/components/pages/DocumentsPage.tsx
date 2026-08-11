@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import { FileText, Upload, Trash2, Download, Eye, EyeOff, X, Plus, Edit2, Calendar } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { UserProfile } from '../../types';
-import { supabase } from '../../utils/supabase/client';
-import { supabaseUrl } from '../../utils/supabase/info';
 import {
     Dialog,
     DialogContent,
@@ -125,38 +123,18 @@ export default function DocumentsPage({ userProfile, showToast }: DocumentsPageP
 
           // Upload file first if new document
           if (!editingDocument && selectedFile) {
-              // Get access token from supabase session
-              const { data: { session } } = await supabase.auth.getSession();
-              const accessToken = session?.access_token;
-
-              if (!accessToken) {
-                  showToast('Не вдалося отримати токен авторизації', 'error');
-                  setIsUploading(false);
-                  return;
-              }
-
-              const uploadFormData = new FormData();
-              uploadFormData.append('file', selectedFile);
-
-              const uploadResponse = await fetch(
-                  `${supabaseUrl}/functions/v1/make-server-5f926218/documents/upload`,
-                  {
-                      method: 'POST',
-                      headers: {
-                          Authorization: `Bearer ${accessToken}`,
-                      },
-                      body: uploadFormData,
-                  }
-              );
-
-              if (!uploadResponse.ok) {
-                  const errorData = await uploadResponse.json().catch(() => ({}));
-                  console.error('Upload failed:', errorData);
-                  throw new Error(errorData.error || 'File upload failed');
-              }
-
-              const uploadData = await uploadResponse.json();
-              filePath = uploadData.path;
+              const content = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(String(reader.result).split(',')[1]);
+                  reader.onerror = () => reject(reader.error);
+                  reader.readAsDataURL(selectedFile);
+              });
+              const uploadData = await apiRequest('/files', 'POST', {
+                  name: selectedFile.name,
+                  contentType: selectedFile.type || 'application/octet-stream',
+                  content,
+              });
+              filePath = uploadData.id;
               fileName = uploadData.fileName;
               console.log('File uploaded successfully:', { filePath, fileName });
           }

@@ -1,255 +1,54 @@
-# 🚀 Інструкція з деплою SAR Ukraine на Netlify
+# Деплой із Git на Netlify
 
-## Передумови
+Проєкт і надалі деплоїться безпосередньо з Git. Після кожного push Netlify автоматично збере frontend і Netlify Function; змінювати цей процес не потрібно.
 
-1. Обліковий запис на [Netlify](https://www.netlify.com/)
-2. Проект Supabase з налаштованими даними
-3. Git репозиторій з кодом проекту
+## Одноразово підключіть Netlify DB до вже існуючого сайту
 
-## Крок 1: Підготовка проекту
-
-### 1.1. Переконайтеся що всі залежності встановлені
+Команда нижче **не деплоїть сайт вручну** і не замінює Git deployment. Вона лише знаходить ваш уже створений Netlify-сайт і додає до нього керовану Postgres-базу:
 
 ```bash
-npm install
+# у локальному clone Git-репозиторію
+npx netlify login
+npx netlify link       # виберіть існуючий сайт, який уже деплоїться з Git
+npx netlify db init
 ```
 
-### 1.2. Перевірте локальну збірку
+Після `db init` Netlify автоматично створить для Functions змінну `NETLIFY_DATABASE_URL`. Connection string не потрібно додавати в Git, `.env` або `VITE_*` змінні.
+
+Якщо у вашому Netlify Dashboard доступна кнопка створення Netlify DB, можна скористатися нею замість команд вище: важливо підключити базу саме до існуючого Git-сайту.
+
+## Таблиці створюються автоматично
+
+Після наступного Git deploy відкрийте сайт або `/api/health`. Netlify Function автоматично й безпечно виконає `CREATE ... IF NOT EXISTS` для всіх таблиць та індексів. Окремо копіювати SQL у консоль більше не потрібно. Файл `database/schema.sql` залишено як документацію та для ручного відновлення.
+
+## Додайте секрет авторизації
+
+У Netlify Dashboard відкрийте **Site configuration → Environment variables** і додайте:
+
+```text
+JWT_SECRET=<довгий випадковий секрет>
+```
+
+Згенерувати його можна локально:
 
 ```bash
-npm run build
+openssl rand -base64 48
 ```
 
-Це створить production збірку в папці `dist/`.
+Секрет повинен бути доступним для Functions. После добавления запустіть **Trigger deploy** або зробіть новий push у Git.
 
-## Крок 2: Налаштування Supabase
-
-### 2.1. Отримайте необхідні дані з Supabase
-
-Перейдіть на [Supabase Dashboard](https://supabase.com/dashboard) → Виберіть ваш проект → Settings → API
-
-Вам потрібні:
-- **Project ID** (наприклад: `qoqsflrkyxuazgqihnrn`)
-- **Project URL** (наприклад: `https://qoqsflrkyxuazgqihnrn.supabase.co`)
-- **Anon/Public Key** (починається з `eyJ...`)
-- **Service Role Key** (СЕКРЕТНИЙ! починається з `eyJ...`)
-
-### 2.2. Database URL (опціонально)
-
-Якщо потрібен прямий доступ до БД:
-Settings → Database → Connection string (URI)
-
-## Крок 3: Деплой на Netlify
-
-### Варіант A: Через Git (рекомендовано)
-
-1. **Завантажте код в Git репозиторій** (GitHub, GitLab, або Bitbucket)
-
-2. **Створіть новий сайт на Netlify:**
-   - Увійдіть на [Netlify](https://app.netlify.com/)
-   - Натисніть "Add new site" → "Import an existing project"
-   - Виберіть ваш Git provider
-   - Авторизуйте Netlify
-   - Виберіть репозиторій
-
-3. **Налаштуйте збірку:**
-   - **Build command:** `npm run build`
-   - **Publish directory:** `dist`
-   - **Node version:** 18
-
-4. **Додайте змінні оточення:**
-   
-   В розділі "Site settings" → "Environment variables" додайте:
-
-   ```
-   VITE_SUPABASE_PROJECT_ID=ваш-project-id
-   VITE_SUPABASE_URL=https://ваш-project-id.supabase.co
-   VITE_SUPABASE_ANON_KEY=ваш-anon-key
-   ```
-
-   ⚠️ **ВАЖЛИВО:** Service Role Key НЕ додавайте у frontend змінні! Він використовується тільки в Supabase Edge Functions.
-
-5. **Деплой:**
-   - Натисніть "Deploy site"
-   - Чекайте завершення збірки (2-3 хвилини)
-
-### Варіант B: Через Netlify CLI
-
-1. **Встановіть Netlify CLI:**
-```bash
-npm install -g netlify-cli
-```
-
-2. **Логін:**
-```bash
-netlify login
-```
-
-3. **Ініціалізуйте проект:**
-```bash
-netlify init
-```
-
-4. **Додайте змінні оточення:**
-```bash
-netlify env:set VITE_SUPABASE_PROJECT_ID "ваш-project-id"
-netlify env:set VITE_SUPABASE_URL "https://ваш-project-id.supabase.co"
-netlify env:set VITE_SUPABASE_ANON_KEY "ваш-anon-key"
-```
-
-5. **Деплой:**
-```bash
-netlify deploy --prod
-```
-
-### Варіант C: Drag & Drop (для тестування)
-
-1. Виконайте локальну збірку:
-```bash
-npm run build
-```
-
-2. Перейдіть на [Netlify Drop](https://app.netlify.com/drop)
-
-3. Перетягніть папку `dist/` на сторінку
-
-4. **Важливо:** Після деплою додайте змінні оточення в Site settings → Environment variables
-
-## Крок 4: Налаштування домену та HTTPS
-
-1. **Кастомний домен (опціонально):**
-   - Site settings → Domain management → Add custom domain
-   - Дотримуйтесь інструкцій для налаштування DNS
-
-2. **HTTPS:**
-   - Netlify автоматично надає SSL сертифікат через Let's Encrypt
-   - Зазвичай активується протягом кількох хвилин
-
-## Крок 5: Налаштування Supabase Edge Functions
-
-Ваші backend функції розміщені в `/supabase/functions/server/`.
-
-### 5.1. Встановіть Supabase CLI
+## Перевірка після Git deploy
 
 ```bash
-npm install -g supabase
+curl https://ВАШ-САЙТ.netlify.app/api/health
 ```
 
-### 5.2. Логін до Supabase
+Endpoint виконує реальний SQL-запит. У відповіді мають бути `status: "ok"`, `provider: "netlify-db"`, ім'я бази та серверний час.
 
-```bash
-supabase login
+## Перший адміністратор
+
+Спочатку зареєструйте користувача через сайт, потім виконайте в SQL-консолі Netlify DB:
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'admin@example.com';
 ```
-
-### 5.3. Зв'яжіть проект
-
-```bash
-supabase link --project-ref ваш-project-id
-```
-
-### 5.4. Деплой функцій
-
-```bash
-supabase functions deploy make-server-5f926218
-```
-
-### 5.5. Встановіть секрети для Edge Functions
-
-```bash
-supabase secrets set SUPABASE_URL=https://ваш-project-id.supabase.co
-supabase secrets set SUPABASE_ANON_KEY=ваш-anon-key
-supabase secrets set SUPABASE_SERVICE_ROLE_KEY=ваш-service-role-key
-supabase secrets set SUPABASE_DB_URL=ваш-database-url
-```
-
-## Крок 6: Перевірка деплою
-
-1. **Відкрийте ваш сайт** (URL буде вигляду: `https://ваш-сайт.netlify.app`)
-
-2. **Перевірте функціональність:**
-   - ✅ Головна сторінка завантажується
-   - ✅ Реєстрація/логін працює
-   - ✅ Можна створити змагання (для організаторів)
-   - ✅ Можна зареєструватися на змагання
-   - ✅ Рейтинг відображається коректно
-
-3. **Перевірте консоль браузера** (F12) на наявність помилок
-
-## Оновлення після змін
-
-### Автоматичне оновлення (Git)
-При push в основну гілку, Netlify автоматично перебудує сайт.
-
-### Ручне оновлення (CLI)
-```bash
-npm run build
-netlify deploy --prod
-```
-
-### Оновлення Edge Functions
-```bash
-supabase functions deploy make-server-5f926218
-```
-
-## Налаштування CORS (якщо потрібно)
-
-Якщо виникають CORS помилки:
-
-1. Перейдіть в Supabase Dashboard → Authentication → URL Configuration
-2. Додайте ваш Netlify URL в "Site URL" та "Redirect URLs"
-
-## Troubleshooting
-
-### Проблема: "Failed to fetch" помилки
-
-**Рішення:**
-- Перевірте що всі змінні оточення встановлені
-- Перевірте що Supabase Edge Functions задеплоєні
-- Перевірте що SUPABASE_URL не має зайвого `/` в кінці
-
-### Проблема: Білий екран після деплою
-
-**Рішення:**
-- Перевірте консоль браузера (F12)
-- Перевірте Build logs в Netlify
-- Переконайтеся що `dist/` папка не порожня
-
-### Проблема: 404 при перезавантаженні сторінки
-
-**Рішення:**
-- Перевірте що файл `netlify.toml` існує і містить редіректи для SPA
-
-### Проблема: Змінні оточення не працюють
-
-**Рішення:**
-- Переконайтеся що імена починаються з `VITE_` для Vite проектів
-- Після додавання змінних треба перебудувати сайт
-- Використовуйте `netlify env:list` для перевірки
-
-## Моніторинг та логи
-
-- **Netlify Logs:** Site settings → Functions → Function logs
-- **Supabase Logs:** Project → Logs → Edge Functions
-- **Analytics:** Netlify Analytics (платна функція)
-
-## Безпека
-
-✅ **Робіть:**
-- Використовуйте змінні оточення для всіх секретів
-- Тримайте Service Role Key тільки на backend
-- Регулярно ротуйте ключі
-
-❌ **Не робіть:**
-- Не комітьте `.env` файли в Git
-- Не використовуйте Service Role Key на frontend
-- Не діліться ключами публічно
-
-## Підтримка
-
-- [Netlify Docs](https://docs.netlify.com/)
-- [Supabase Docs](https://supabase.com/docs)
-- [Vite Docs](https://vitejs.dev/)
-
----
-
-**Готово! 🎉** Ваша платформа SAR Ukraine тепер доступна онлайн!

@@ -25,8 +25,6 @@ import {
     DialogTitle,
 } from '../ui/dialog';
 import { PageType } from '../../App';
-import { supabase } from '../../utils/supabase/client';
-import { supabaseUrl } from '../../utils/supabase/info';
 
 type ManageCompetitionPageProps = {
     competitionId: string;
@@ -66,11 +64,7 @@ const DocumentLink = ({ path }: { path: string }) => {
     const [url, setUrl] = useState<string | null>(null);
 
     useEffect(() => {
-        const fetchUrl = async () => {
-             const { data } = await supabase.storage.from('make-5f926218-uploads').createSignedUrl(path, 3600);
-             if (data?.signedUrl) setUrl(data.signedUrl);
-        };
-        fetchUrl();
+        setUrl(`/api/files/${encodeURIComponent(path)}`);
     }, [path]);
 
     if (!url) return <span className="text-gray-400">Завантаження...</span>;

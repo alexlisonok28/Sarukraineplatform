@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { PageType, Toast } from '../../App';
-import { supabase } from '../../utils/supabase/client';
+import { auth } from '../../utils/auth';
 import { apiRequest } from '../../utils/api';
 
 type RegisterPageProps = {
@@ -42,7 +42,7 @@ export default function RegisterPage({ onPageChange, showToast }: RegisterPagePr
         showToast?.('Реєстрація успішна! Тепер увійдіть в систему.', 'success');
         
         // Auto-login after signup
-        const { error: loginError } = await supabase.auth.signInWithPassword({
+        const { error: loginError } = await auth.signInWithPassword({
             email,
             password
         });

@@ -15,7 +15,7 @@ import RatingPage from './components/pages/RatingPage';
 import AdminPage from './components/pages/AdminPage';
 import ManageCompetitionPage from './components/pages/ManageCompetitionPage';
 import ToastContainer from './components/ToastContainer';
-import { supabase } from './utils/supabase/client';
+import { auth } from './utils/auth';
 import { apiRequest } from './utils/api';
 import { UserProfile } from './types';
 
@@ -37,11 +37,11 @@ export default function App() {
 
   useEffect(() => {
     console.log('[App] Initializing auth state...');
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
+    auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         console.error('[App] Error getting initial session:', error);
         // Clear any corrupted session
-        supabase.auth.signOut({ scope: 'local' });
+        auth.signOut({ scope: 'local' });
         return;
       }
       
@@ -63,10 +63,10 @@ export default function App() {
       }
     }).catch((err) => {
       console.error('[App] Unexpected error in getSession:', err);
-      supabase.auth.signOut({ scope: 'local' });
+      auth.signOut({ scope: 'local' });
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = auth.onAuthStateChange((event, session) => {
       console.log('[App] Auth state changed:', { 
         event, 
         hasSession: !!session,
@@ -95,7 +95,7 @@ export default function App() {
       // Always get fresh session if no token provided
       if (!token) {
         console.log('[fetchProfile] No token provided, getting session...');
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data: { session }, error } = await auth.getSession();
         
         if (error) {
           console.error('[fetchProfile] Error getting session:', error);
@@ -115,11 +115,11 @@ export default function App() {
           console.log('[fetchProfile] Token expiring soon, refreshing session...');
           
           try {
-            const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession();
+            const { data: { session: newSession }, error: refreshError } = await auth.refreshSession();
             
             if (refreshError || !newSession) {
               console.error('[fetchProfile] Failed to refresh session:', refreshError);
-              await supabase.auth.signOut({ scope: 'local' });
+              await auth.signOut({ scope: 'local' });
               setIsLoggedIn(false);
               setUserProfile(null);
               return;
@@ -129,7 +129,7 @@ export default function App() {
             console.log('[fetchProfile] ✓ Session refreshed successfully');
           } catch (refreshErr) {
             console.error('[fetchProfile] Refresh session threw error:', refreshErr);
-            await supabase.auth.signOut({ scope: 'local' });
+            await auth.signOut({ scope: 'local' });
             setIsLoggedIn(false);
             setUserProfile(null);
             return;
@@ -150,11 +150,11 @@ export default function App() {
           
           try {
             // Try to refresh session
-            const { data: { session }, error } = await supabase.auth.refreshSession();
+            const { data: { session }, error } = await auth.refreshSession();
             
             if (!session || error) {
                 console.error('No valid session found, signing out');
-                await supabase.auth.signOut({ scope: 'local' });
+                await auth.signOut({ scope: 'local' });
                 setIsLoggedIn(false);
                 setUserProfile(null);
             } else {
@@ -164,7 +164,7 @@ export default function App() {
             }
           } catch (refreshErr) {
             console.error('Refresh session failed, signing out:', refreshErr);
-            await supabase.auth.signOut({ scope: 'local' });
+            await auth.signOut({ scope: 'local' });
             setIsLoggedIn(false);
             setUserProfile(null);
           }
@@ -213,7 +213,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await auth.signOut();
     setIsLoggedIn(false);
     showToast('Ви вийшли з системи', 'info');
     setCurrentPage('landing');
