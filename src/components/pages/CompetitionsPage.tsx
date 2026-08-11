@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import { Trophy, Plus, Calendar, MapPin, Users, Edit, Trash2, Settings, AlertTriangle, Upload, X } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { Competition, UserProfile, Dog } from '../../types';
-import { supabaseUrl, publicAnonKey } from '../../utils/supabase/info';
-import { supabase } from '../../utils/supabase/client';
 import CompetitionModal from '../CompetitionModal';
 import {
   AlertDialog,
@@ -148,27 +146,19 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
           const uploadedDocs: string[] = [];
           
           if (registerFiles.length > 0) {
-              const { data: { session } } = await supabase.auth.getSession();
-              const token = session?.access_token;
-
               for (const file of registerFiles) {
-                  const formData = new FormData();
-                  formData.append('file', file);
-                  
-                  const response = await fetch(`${supabaseUrl}/functions/v1/make-server-5f926218/upload`, {
-                      method: 'POST',
-                      headers: {
-                          'Authorization': `Bearer ${token || publicAnonKey}`
-                      },
-                      body: formData
+                  const content = await new Promise<string>((resolve, reject) => {
+                      const reader = new FileReader();
+                      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+                      reader.onerror = () => reject(reader.error);
+                      reader.readAsDataURL(file);
                   });
-                  
-                  if (!response.ok) {
-                      throw new Error('Не вдалося завантажити документи');
-                  }
-                  
-                  const data = await response.json();
-                  uploadedDocs.push(data.path);
+                  const data = await apiRequest('/files', 'POST', {
+                      name: file.name,
+                      contentType: file.type || 'application/octet-stream',
+                      content,
+                  });
+                  uploadedDocs.push(data.id);
               }
           }
 

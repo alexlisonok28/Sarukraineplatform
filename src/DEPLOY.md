@@ -1,255 +1,37 @@
-# 🚀 Інструкція з деплою SAR Ukraine на Netlify
+# Деплой Neon + Netlify
 
-## Передумови
+## 1. Neon
 
-1. Обліковий запис на [Netlify](https://www.netlify.com/)
-2. Проект Supabase з налаштованими даними
-3. Git репозиторій з кодом проекту
+Створіть безкоштовний Neon Postgres проєкт. У SQL Editor виконайте весь файл `database/schema.sql`. Скопіюйте pooled connection string.
 
-## Крок 1: Підготовка проекту
+## 2. Netlify
 
-### 1.1. Переконайтеся що всі залежності встановлені
+Імпортуйте Git-репозиторій. Конфігурація збірки вже міститься у кореневому `netlify.toml`.
+
+У **Site configuration → Environment variables** додайте:
+
+```text
+DATABASE_URL=postgresql://...neon.tech/neondb?sslmode=require
+JWT_SECRET=<результат openssl rand -base64 48>
+```
+
+Ці значення мають бути доступні Functions. Не використовуйте `VITE_` для секретів.
+
+## 3. Перевірка
 
 ```bash
 npm install
-```
-
-### 1.2. Перевірте локальну збірку
-
-```bash
 npm run build
+npx netlify dev
+curl http://localhost:8888/api/health
 ```
 
-Це створить production збірку в папці `dist/`.
+Після деплою перевірте `https://ВАШ-САЙТ.netlify.app/api/health`. Очікувана відповідь: `{"status":"ok","database":"neon"}`.
 
-## Крок 2: Налаштування Supabase
+## Перший адміністратор
 
-### 2.1. Отримайте необхідні дані з Supabase
+Спочатку зареєструйте користувача через сайт, потім виконайте в Neon SQL Editor:
 
-Перейдіть на [Supabase Dashboard](https://supabase.com/dashboard) → Виберіть ваш проект → Settings → API
-
-Вам потрібні:
-- **Project ID** (наприклад: `qoqsflrkyxuazgqihnrn`)
-- **Project URL** (наприклад: `https://qoqsflrkyxuazgqihnrn.supabase.co`)
-- **Anon/Public Key** (починається з `eyJ...`)
-- **Service Role Key** (СЕКРЕТНИЙ! починається з `eyJ...`)
-
-### 2.2. Database URL (опціонально)
-
-Якщо потрібен прямий доступ до БД:
-Settings → Database → Connection string (URI)
-
-## Крок 3: Деплой на Netlify
-
-### Варіант A: Через Git (рекомендовано)
-
-1. **Завантажте код в Git репозиторій** (GitHub, GitLab, або Bitbucket)
-
-2. **Створіть новий сайт на Netlify:**
-   - Увійдіть на [Netlify](https://app.netlify.com/)
-   - Натисніть "Add new site" → "Import an existing project"
-   - Виберіть ваш Git provider
-   - Авторизуйте Netlify
-   - Виберіть репозиторій
-
-3. **Налаштуйте збірку:**
-   - **Build command:** `npm run build`
-   - **Publish directory:** `dist`
-   - **Node version:** 18
-
-4. **Додайте змінні оточення:**
-   
-   В розділі "Site settings" → "Environment variables" додайте:
-
-   ```
-   VITE_SUPABASE_PROJECT_ID=ваш-project-id
-   VITE_SUPABASE_URL=https://ваш-project-id.supabase.co
-   VITE_SUPABASE_ANON_KEY=ваш-anon-key
-   ```
-
-   ⚠️ **ВАЖЛИВО:** Service Role Key НЕ додавайте у frontend змінні! Він використовується тільки в Supabase Edge Functions.
-
-5. **Деплой:**
-   - Натисніть "Deploy site"
-   - Чекайте завершення збірки (2-3 хвилини)
-
-### Варіант B: Через Netlify CLI
-
-1. **Встановіть Netlify CLI:**
-```bash
-npm install -g netlify-cli
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'admin@example.com';
 ```
-
-2. **Логін:**
-```bash
-netlify login
-```
-
-3. **Ініціалізуйте проект:**
-```bash
-netlify init
-```
-
-4. **Додайте змінні оточення:**
-```bash
-netlify env:set VITE_SUPABASE_PROJECT_ID "ваш-project-id"
-netlify env:set VITE_SUPABASE_URL "https://ваш-project-id.supabase.co"
-netlify env:set VITE_SUPABASE_ANON_KEY "ваш-anon-key"
-```
-
-5. **Деплой:**
-```bash
-netlify deploy --prod
-```
-
-### Варіант C: Drag & Drop (для тестування)
-
-1. Виконайте локальну збірку:
-```bash
-npm run build
-```
-
-2. Перейдіть на [Netlify Drop](https://app.netlify.com/drop)
-
-3. Перетягніть папку `dist/` на сторінку
-
-4. **Важливо:** Після деплою додайте змінні оточення в Site settings → Environment variables
-
-## Крок 4: Налаштування домену та HTTPS
-
-1. **Кастомний домен (опціонально):**
-   - Site settings → Domain management → Add custom domain
-   - Дотримуйтесь інструкцій для налаштування DNS
-
-2. **HTTPS:**
-   - Netlify автоматично надає SSL сертифікат через Let's Encrypt
-   - Зазвичай активується протягом кількох хвилин
-
-## Крок 5: Налаштування Supabase Edge Functions
-
-Ваші backend функції розміщені в `/supabase/functions/server/`.
-
-### 5.1. Встановіть Supabase CLI
-
-```bash
-npm install -g supabase
-```
-
-### 5.2. Логін до Supabase
-
-```bash
-supabase login
-```
-
-### 5.3. Зв'яжіть проект
-
-```bash
-supabase link --project-ref ваш-project-id
-```
-
-### 5.4. Деплой функцій
-
-```bash
-supabase functions deploy make-server-5f926218
-```
-
-### 5.5. Встановіть секрети для Edge Functions
-
-```bash
-supabase secrets set SUPABASE_URL=https://ваш-project-id.supabase.co
-supabase secrets set SUPABASE_ANON_KEY=ваш-anon-key
-supabase secrets set SUPABASE_SERVICE_ROLE_KEY=ваш-service-role-key
-supabase secrets set SUPABASE_DB_URL=ваш-database-url
-```
-
-## Крок 6: Перевірка деплою
-
-1. **Відкрийте ваш сайт** (URL буде вигляду: `https://ваш-сайт.netlify.app`)
-
-2. **Перевірте функціональність:**
-   - ✅ Головна сторінка завантажується
-   - ✅ Реєстрація/логін працює
-   - ✅ Можна створити змагання (для організаторів)
-   - ✅ Можна зареєструватися на змагання
-   - ✅ Рейтинг відображається коректно
-
-3. **Перевірте консоль браузера** (F12) на наявність помилок
-
-## Оновлення після змін
-
-### Автоматичне оновлення (Git)
-При push в основну гілку, Netlify автоматично перебудує сайт.
-
-### Ручне оновлення (CLI)
-```bash
-npm run build
-netlify deploy --prod
-```
-
-### Оновлення Edge Functions
-```bash
-supabase functions deploy make-server-5f926218
-```
-
-## Налаштування CORS (якщо потрібно)
-
-Якщо виникають CORS помилки:
-
-1. Перейдіть в Supabase Dashboard → Authentication → URL Configuration
-2. Додайте ваш Netlify URL в "Site URL" та "Redirect URLs"
-
-## Troubleshooting
-
-### Проблема: "Failed to fetch" помилки
-
-**Рішення:**
-- Перевірте що всі змінні оточення встановлені
-- Перевірте що Supabase Edge Functions задеплоєні
-- Перевірте що SUPABASE_URL не має зайвого `/` в кінці
-
-### Проблема: Білий екран після деплою
-
-**Рішення:**
-- Перевірте консоль браузера (F12)
-- Перевірте Build logs в Netlify
-- Переконайтеся що `dist/` папка не порожня
-
-### Проблема: 404 при перезавантаженні сторінки
-
-**Рішення:**
-- Перевірте що файл `netlify.toml` існує і містить редіректи для SPA
-
-### Проблема: Змінні оточення не працюють
-
-**Рішення:**
-- Переконайтеся що імена починаються з `VITE_` для Vite проектів
-- Після додавання змінних треба перебудувати сайт
-- Використовуйте `netlify env:list` для перевірки
-
-## Моніторинг та логи
-
-- **Netlify Logs:** Site settings → Functions → Function logs
-- **Supabase Logs:** Project → Logs → Edge Functions
-- **Analytics:** Netlify Analytics (платна функція)
-
-## Безпека
-
-✅ **Робіть:**
-- Використовуйте змінні оточення для всіх секретів
-- Тримайте Service Role Key тільки на backend
-- Регулярно ротуйте ключі
-
-❌ **Не робіть:**
-- Не комітьте `.env` файли в Git
-- Не використовуйте Service Role Key на frontend
-- Не діліться ключами публічно
-
-## Підтримка
-
-- [Netlify Docs](https://docs.netlify.com/)
-- [Supabase Docs](https://supabase.com/docs)
-- [Vite Docs](https://vitejs.dev/)
-
----
-
-**Готово! 🎉** Ваша платформа SAR Ukraine тепер доступна онлайн!
