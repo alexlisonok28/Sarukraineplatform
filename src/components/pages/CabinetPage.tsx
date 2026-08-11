@@ -4,7 +4,7 @@ import { PageType } from '../../App';
 import DogModal from '../DogModal';
 import { ClipboardList, ArrowRight, Plus, Mail, MessageCircle, Calendar, MapPin, Trophy, Paperclip } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
-import { supabase } from '../../utils/supabase/client';
+import { auth } from '../../utils/auth';
 
 type CabinetPageProps = {
   userProfile: UserProfile | null;
@@ -135,7 +135,7 @@ export default function CabinetPage({ userProfile, setUserProfile, onPageChange,
         return;
     }
 
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error } = await auth.updateUser({ password });
     if (error) {
         showToast(error.message, 'error');
     } else {

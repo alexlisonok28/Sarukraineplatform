@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { PageType, Toast } from '../../App';
-import { supabase } from '../../utils/supabase/client';
+import { auth } from '../../utils/auth';
 
 type LoginPageProps = {
   onLogin: () => void;
@@ -21,7 +21,7 @@ export default function LoginPage({ onLogin, onPageChange, showToast }: LoginPag
     
     console.log('[LoginPage] Attempting login for:', email);
     
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await auth.signInWithPassword({
         email,
         password
     });
@@ -40,7 +40,7 @@ export default function LoginPage({ onLogin, onPageChange, showToast }: LoginPag
         
         // Verify session is stored
         setTimeout(async () => {
-          const { data: checkData } = await supabase.auth.getSession();
+          const { data: checkData } = await auth.getSession();
           console.log('[LoginPage] Session check after login:', {
             hasSession: !!checkData.session,
             userId: checkData.session?.user?.id

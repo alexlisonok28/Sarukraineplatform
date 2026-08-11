@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiRequest } from '../../utils/api';
 import { UserProfile, UserRole } from '../../types';
-import { supabase } from '../../utils/supabase/client';
 import {
   Table,
   TableBody,
