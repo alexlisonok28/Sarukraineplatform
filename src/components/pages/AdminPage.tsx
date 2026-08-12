@@ -1,3 +1,17 @@
+/*
+ * СТРАНИЦА АДМИНИСТРАТОРА
+ * -----------------------
+ * Здесь администратор видит зарегистрированных пользователей и меняет их роли.
+ *
+ * React-часть отвечает только за интерфейс. Реальная проверка роли admin и само
+ * изменение роли выполняются backend API (`/admin/users` и `/admin/users/:id/role`).
+ *
+ * Основные React-механизмы в этом файле:
+ * - useState — хранит список пользователей, состояние загрузки и ID обновляемой строки;
+ * - useEffect — один раз после открытия страницы запускает загрузку пользователей;
+ * - props — App.tsx передаёт сюда профиль текущего пользователя и функцию toast;
+ * - условный return — не-admin получает экран «Доступ заборонено».
+ */
 import { useState, useEffect } from 'react';
 import { apiRequest } from '../../utils/api';
 import { UserProfile, UserRole } from '../../types';
@@ -22,20 +36,30 @@ import { Badge } from "../ui/badge";
 import { Loader2, Shield, User, Users } from 'lucide-react';
 import { toast } from "sonner";
 
+// Props — данные, которые родительский App.tsx передаёт этой странице.
 interface AdminPageProps {
   userProfile: UserProfile | null;
   showToast: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
 export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
+  // users — текущий список пользователей из Neon.
+  // setUsers — функция React, которая заменяет список и вызывает перерисовку таблицы.
   const [users, setUsers] = useState<UserProfile[]>([]);
+
+  // loading управляет показом индикатора загрузки.
   const [loading, setLoading] = useState(true);
+
+  // updating хранит ID пользователя, роль которого сейчас меняется.
+  // Это позволяет временно заблокировать Select именно в нужной строке.
   const [updating, setUpdating] = useState<string | null>(null);
 
+  // useEffect с [] выполняется один раз после первого отображения страницы.
   useEffect(() => {
     fetchUsers();
   }, []);
 
+  // Получаем пользователей с backend. Этот endpoint сервер разрешает только admin.
   const fetchUsers = async () => {
     try {
       setLoading(true);
@@ -45,19 +69,24 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
       console.error('Failed to fetch users', error);
       showToast('Не вдалося завантажити список користувачів', 'error');
     } finally {
+      // finally выполняется и при успехе, и при ошибке.
       setLoading(false);
     }
   };
 
+  // Вызывается после выбора новой роли в выпадающем списке.
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     try {
       setUpdating(userId);
+
+      // Сначала сохраняем роль на сервере.
       await apiRequest(`/admin/users/${userId}/role`, 'PUT', { role: newRole });
-      
-      setUsers(users.map(u => 
+
+      // Затем локально обновляем нужную строку, чтобы не перезагружать всю таблицу.
+      setUsers(users.map(u =>
         u.id === userId ? { ...u, role: newRole } : u
       ));
-      
+
       showToast('Роль користувача оновлено', 'success');
     } catch (error) {
       console.error('Failed to update role', error);
@@ -67,6 +96,7 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
     }
   };
 
+  // Вспомогательная функция: выбирает CSS-классы цвета badge по роли.
   const getRoleBadgeColor = (role: UserRole) => {
     switch (role) {
       case 'admin':
@@ -78,6 +108,7 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
     }
   };
 
+  // Техническое имя роли превращаем в понятную подпись для интерфейса.
   const translateRole = (role: UserRole) => {
     switch (role) {
       case 'admin':
@@ -91,6 +122,8 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
     }
   };
 
+  // UI-защита: если страницу каким-то образом открыл не admin, ничего
+  // административного ему не показываем. Backend всё равно проверяет роль отдельно.
   if (!userProfile || userProfile.role !== 'admin') {
     return (
       <div className="min-h-screen pt-24 px-6 flex justify-center">
@@ -120,6 +153,7 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
         </CardHeader>
         <CardContent>
           {loading ? (
+            // Пока fetchUsers не завершился, показываем spinner.
             <div className="flex justify-center py-12">
               <Loader2 className="w-8 h-8 text-[#007AFF] animate-spin" />
             </div>
@@ -134,6 +168,7 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* map превращает каждый объект user в отдельную строку таблицы. */}
                 {users.map((user) => (
                   <TableRow key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <TableCell className="text-gray-900">
@@ -152,6 +187,8 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
                     </TableCell>
                     <TableCell>
                       <Select
+                        // Нельзя менять собственную роль из UI и нельзя повторно
+                        // нажимать Select, пока предыдущий запрос ещё выполняется.
                         disabled={updating === user.id || user.id === userProfile.id}
                         value={user.role}
                         onValueChange={(value: UserRole) => handleRoleChange(user.id, value)}
