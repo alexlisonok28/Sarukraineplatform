@@ -74,6 +74,17 @@ async function sessionFor(env: Env, user: any) {
 
 const requireRole = (user: any, roles: string[]) => user && roles.includes(user.role);
 
+/**
+ * Проверяет право на управление КОНКРЕТНЫМ соревнованием.
+ * Администратор может управлять любым соревнованием.
+ * Организатор — только тем, у которого organizerId совпадает с его user id.
+ */
+const canManageCompetition = (user: any, competition: any) => {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return user.role === 'organizer' && String(competition?.organizerId || '') === String(user.id);
+};
+
 function decodeBase64(value: string) {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
@@ -181,7 +192,21 @@ export const onRequest = async ({ request, env }: Ctx) => {
       if (path === `/${name}` && method === 'POST') {
         if (!requireRole(user,roles)) return json({error:'Forbidden'},403);
         const list:any[] = await getData(env,name) || [];
-        const item={...body,id:crypto.randomUUID(),createdAt:new Date().toISOString()};
+
+        // Для соревнования сервер сам фиксирует создателя.
+        // Нельзя доверять organizerId, присланному из браузера: иначе организатор
+        // мог бы создать соревнование от имени другого пользователя.
+        const item = name === 'competitions'
+          ? {
+              ...body,
+              id:crypto.randomUUID(),
+              organizerId:user.id,
+              organizerName:body.organizerName || user.name || user.email,
+              participants:Array.isArray(body.participants) ? body.participants : [],
+              createdAt:new Date().toISOString()
+            }
+          : {...body,id:crypto.randomUUID(),createdAt:new Date().toISOString()};
+
         list.push(item); await setData(env,name,list); return json(item,201);
       }
       const match=path.match(new RegExp(`^/${name}/([^/]+)$`));
@@ -190,6 +215,10 @@ export const onRequest = async ({ request, env }: Ctx) => {
         const list:any[] = await getData(env,name) || [];
         const i=list.findIndex(x=>x.id===match[1]);
         if(i<0) return json({error:'Not found'},404);
+
+        // Организатор может редактировать/удалять только созданное им соревнование.
+        if (name === 'competitions' && !canManageCompetition(user,list[i])) return json({error:'Forbidden'},403);
+
         if(method==='DELETE') list.splice(i,1); else list[i]={...list[i],...body,id:list[i].id};
         await setData(env,name,list); return json(method==='DELETE'?{success:true}:list[i]);
       }
@@ -200,20 +229,75 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const list:any[]=await getData(env,'competitions')||[]; const c=list.find(x=>x.id===compResults[1]);
       return c?json(c.results||c.participants||[]):json({error:'Competition not found'},404);
     }
+
     const register=path.match(/^\/competitions\/([^/]+)\/register$/);
     if(register&&method==='POST') {
       if(!user)return json({error:'Unauthorized'},401);
       const list:any[]=await getData(env,'competitions')||[]; const c=list.find(x=>x.id===register[1]);
       if(!c)return json({error:'Competition not found'},404);
-      c.participants=c.participants||[]; const p={...body,id:crypto.randomUUID(),userId:user.id,status:'pending',registeredAt:new Date().toISOString()};
+
+      c.participants=c.participants||[];
+
+      // В интерфейсе управления новые заявки ищутся по статусу `registered`.
+      // Раньше backend записывал `pending`, из-за чего заявка существовала в БД,
+      // но кнопки «Прийняти / Відхилити» вообще не появлялись.
+      const p={...body,id:crypto.randomUUID(),userId:user.id,status:'registered',registeredAt:new Date().toISOString()};
       c.participants.push(p); await setData(env,'competitions',list); return json(p,201);
     }
+
     const details=path.match(/^\/competitions\/([^/]+)\/(details|participants)$/);
     if(details) {
       const list:any[]=await getData(env,'competitions')||[]; const c=list.find(x=>x.id===details[1]);
       if(!c)return json({error:'Competition not found'},404);
-      if(method==='GET')return json(c);
-      if(method==='PUT'&&requireRole(user,['organizer','admin'])) {
+
+      // Страница управления содержит персональные данные заявок, поэтому она
+      // доступна только администратору или организатору именно этого соревнования.
+      if(!canManageCompetition(user,c)) return json({error:'Forbidden'},403);
+
+      if(method==='GET') {
+        c.participants = Array.isArray(c.participants) ? c.participants : [];
+        let migratedLegacyStatus = false;
+
+        // Заявка хранит только userId и dogId. Для страницы управления этого мало,
+        // поэтому здесь собираем «полную» заявку из users + profile + dogs.
+        // Это позволяет организатору видеть ФИО, данные собаки, категорию и документы.
+        const enrichedParticipants = await Promise.all(c.participants.map(async (p:any) => {
+          if (p.status === 'pending') {
+            // Поддерживаем уже созданные до исправления заявки.
+            p.status = 'registered';
+            migratedLegacyStatus = true;
+          }
+
+          const userRows = await sql`SELECT id,email,name FROM users WHERE id=${p.userId}`;
+          const participantUser:any = userRows[0] || {};
+          const profile:any = await getData(env,`profile:${p.userId}`) || {};
+          const dogs:any[] = await getData(env,`dogs:${p.userId}`) || [];
+          const dog:any = dogs.find(d => String(d.id) === String(p.dogId)) || {};
+
+          return {
+            ...p,
+            userName: profile.name || participantUser.name || participantUser.email || 'Невідомий учасник',
+            userEmail: participantUser.email,
+            dogName: dog.name || 'Невідома собака',
+            dogBirth: dog.birth || '',
+            dogBreed: dog.breed || '',
+            dogPedigree: dog.pedigree || '',
+            dogChip: dog.chip || '',
+            dogWorkbook: dog.workbook || '',
+            category: p.category || p.class || '',
+            class: p.class || p.category || c.level || '',
+            documents: Array.isArray(p.documents) ? p.documents : []
+          };
+        }));
+
+        // Старые `pending` сохраняем как `registered`, чтобы после следующего
+        // открытия страницы данные уже были в едином формате.
+        if (migratedLegacyStatus) await setData(env,'competitions',list);
+
+        return json({...c,participants:enrichedParticipants});
+      }
+
+      if(method==='PUT') {
         c.participants=c.participants||[];
         const i=c.participants.findIndex((p:any)=>body.participantId?p.id===body.participantId:p.userId===body.userId&&p.dogId===body.dogId&&p.category===body.category);
         if(i<0)return json({error:'Participant not found'},404);
@@ -234,25 +318,24 @@ export const onRequest = async ({ request, env }: Ctx) => {
     const fileMatch=path.match(/^\/files\/([^/]+)$/);
     if(fileMatch&&method==='GET') {
       const fileId = fileMatch[1];
+      const documents:any[] = await getData(env,'documents') || [];
+      const competitions:any[] = await getData(env,'competitions') || [];
 
-      // -------------------------------------------------------------------
-      // ПУБЛИЧНОЕ СКАЧИВАНИЕ ФАЙЛОВ ИЗ РАЗДЕЛА «ДОКУМЕНТИ»
-      // -------------------------------------------------------------------
-      // Сам раздел «Документи» публичный: его видит даже гость без аккаунта.
-      // Поэтому файл, который прикреплён к опубликованной записи документа,
-      // тоже должен скачиваться без JWT-токена.
-      //
-      // При этом мы НЕ делаем публичными вообще все файлы из таблицы `files`.
-      // Если пользователь не авторизован, сначала проверяем, что запрошенный
-      // fileId действительно указан как `filePath` хотя бы у одного документа
-      // из публичной коллекции `documents`.
-      if (!user) {
-        const documents:any[] = await getData(env,'documents') || [];
-        const isPublicDocumentFile = documents.some(document => String(document?.filePath || '') === fileId);
+      const isPublicDocumentFile = documents.some(document => String(document?.filePath || '') === fileId);
 
-        if (!isPublicDocumentFile) {
-          return json({error:'Unauthorized'},401);
-        }
+      // Регистрационные документы не являются общей библиотекой документов,
+      // но текущий React-компонент открывает их обычной ссылкой <a>, а браузер
+      // при таком переходе не добавляет JWT из localStorage.
+      // Разрешаем чтение ТОЛЬКО файла, UUID которого действительно записан в
+      // documents одной из заявок. Сам UUID генерируется криптографически случайно.
+      const isCompetitionRegistrationFile = competitions.some(competition =>
+        (competition?.participants || []).some((participant:any) =>
+          Array.isArray(participant?.documents) && participant.documents.some((id:any) => String(id) === fileId)
+        )
+      );
+
+      if (!user && !isPublicDocumentFile && !isCompetitionRegistrationFile) {
+        return json({error:'Unauthorized'},401);
       }
 
       const rows=await sql`SELECT name,content_type,content FROM files WHERE id=${fileId}`;
@@ -262,23 +345,21 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
       const safeFileName = String(rows[0].name).replace(/[\r\n"]/g,'');
 
-      // `attachment` сообщает браузеру, что это именно загрузка файла.
-      // Поэтому пользователь остаётся на странице «Документи», а браузер
-      // запускает обычное скачивание вместо отображения PDF/DOCX как API-страницы.
+      // Общие документы скачиваем, а регистрационный документ организатору
+      // удобнее открыть в новой вкладке для проверки.
+      const disposition = isCompetitionRegistrationFile && !isPublicDocumentFile ? 'inline' : 'attachment';
+
       return new Response(bytes,{
         status:200,
         headers:{
           'Content-Type':rows[0].content_type,
-          'Content-Disposition':`attachment; filename="${safeFileName}"`
+          'Content-Disposition':`${disposition}; filename="${safeFileName}"`
         }
       });
     }
 
     const documentDownload=path.match(/^\/documents\/([^/]+)\/download$/);
     if(documentDownload&&method==='GET') {
-      // Этот endpoint намеренно публичный: список документов публичен, а ниже
-      // `/files/:id` дополнительно проверяет, что файл действительно принадлежит
-      // записи из публичного раздела «Документи».
       const documents:any[]=await getData(env,'documents')||[];
       const document=documents.find(item=>item.id===documentDownload[1]);
       if(!document?.filePath)return json({error:'File not found'},404);
