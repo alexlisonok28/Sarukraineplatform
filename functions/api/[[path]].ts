@@ -201,7 +201,7 @@ export const onRequest = async ({ request, env }: Ctx) => {
       return c?json(c.results||c.participants||[]):json({error:'Competition not found'},404);
     }
     const register=path.match(/^\/competitions\/([^/]+)\/register$/);
-    if(register && method==='POST') {
+    if(register&&method==='POST') {
       if(!user)return json({error:'Unauthorized'},401);
       const list:any[]=await getData(env,'competitions')||[]; const c=list.find(x=>x.id===register[1]);
       if(!c)return json({error:'Competition not found'},404);
@@ -230,18 +230,57 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const rows=await sql`INSERT INTO files(owner_id,name,content_type,content) VALUES(${user.id},${body.name},${body.contentType||'application/octet-stream'},${bytes}) RETURNING id,name`;
       return json({id:rows[0].id,path:rows[0].id,fileName:rows[0].name},201);
     }
+
     const fileMatch=path.match(/^\/files\/([^/]+)$/);
     if(fileMatch&&method==='GET') {
-      if(!user)return json({error:'Unauthorized'},401);
-      const rows=await sql`SELECT name,content_type,content FROM files WHERE id=${fileMatch[1]}`;
+      const fileId = fileMatch[1];
+
+      // -------------------------------------------------------------------
+      // ПУБЛИЧНОЕ СКАЧИВАНИЕ ФАЙЛОВ ИЗ РАЗДЕЛА «ДОКУМЕНТИ»
+      // -------------------------------------------------------------------
+      // Сам раздел «Документи» публичный: его видит даже гость без аккаунта.
+      // Поэтому файл, который прикреплён к опубликованной записи документа,
+      // тоже должен скачиваться без JWT-токена.
+      //
+      // При этом мы НЕ делаем публичными вообще все файлы из таблицы `files`.
+      // Если пользователь не авторизован, сначала проверяем, что запрошенный
+      // fileId действительно указан как `filePath` хотя бы у одного документа
+      // из публичной коллекции `documents`.
+      if (!user) {
+        const documents:any[] = await getData(env,'documents') || [];
+        const isPublicDocumentFile = documents.some(document => String(document?.filePath || '') === fileId);
+
+        if (!isPublicDocumentFile) {
+          return json({error:'Unauthorized'},401);
+        }
+      }
+
+      const rows=await sql`SELECT name,content_type,content FROM files WHERE id=${fileId}`;
       if(!rows[0])return json({error:'File not found'},404);
+
       const raw:any=rows[0].content;
       const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-      return new Response(bytes,{status:200,headers:{'Content-Type':rows[0].content_type,'Content-Disposition':`inline; filename="${String(rows[0].name).replace(/[\r\n"]/g,'')}"`}});
+      const safeFileName = String(rows[0].name).replace(/[\r\n"]/g,'');
+
+      // `attachment` сообщает браузеру, что это именно загрузка файла.
+      // Поэтому пользователь остаётся на странице «Документи», а браузер
+      // запускает обычное скачивание вместо отображения PDF/DOCX как API-страницы.
+      return new Response(bytes,{
+        status:200,
+        headers:{
+          'Content-Type':rows[0].content_type,
+          'Content-Disposition':`attachment; filename="${safeFileName}"`
+        }
+      });
     }
+
     const documentDownload=path.match(/^\/documents\/([^/]+)\/download$/);
     if(documentDownload&&method==='GET') {
-      const documents:any[]=await getData(env,'documents')||[]; const document=documents.find(item=>item.id===documentDownload[1]);
+      // Этот endpoint намеренно публичный: список документов публичен, а ниже
+      // `/files/:id` дополнительно проверяет, что файл действительно принадлежит
+      // записи из публичного раздела «Документи».
+      const documents:any[]=await getData(env,'documents')||[];
+      const document=documents.find(item=>item.id===documentDownload[1]);
       if(!document?.filePath)return json({error:'File not found'},404);
       return json({url:`/api/files/${document.filePath}`});
     }
