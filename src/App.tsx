@@ -6,6 +6,7 @@ import CabinetPage from './components/pages/CabinetPage';
 import LoginPage from './components/pages/LoginPage';
 import RegisterPage from './components/pages/RegisterPage';
 import ForgotPasswordPage from './components/pages/ForgotPasswordPage';
+import ResetPasswordPage from './components/pages/ResetPasswordPage';
 import CompetitionsPage from './components/pages/CompetitionsPage';
 import JudgesPage from './components/pages/JudgesPage';
 import TeamsPage from './components/pages/TeamsPage';
@@ -19,7 +20,7 @@ import { auth } from './utils/auth';
 import { apiRequest } from './utils/api';
 import { UserProfile } from './types';
 
-export type PageType = 'landing' | 'cabinet' | 'login' | 'register' | 'forgot-password' | 'competitions' | 'judges' | 'teams' | 'documents' | 'results' | 'rating' | 'admin' | 'manage-competition';
+export type PageType = 'landing' | 'cabinet' | 'login' | 'register' | 'forgot-password' | 'reset-password' | 'competitions' | 'judges' | 'teams' | 'documents' | 'results' | 'rating' | 'admin' | 'manage-competition';
 
 export type Toast = {
   id: string;
@@ -28,7 +29,11 @@ export type Toast = {
 };
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<PageType>('landing');
+  // Ссылка из письма имеет вид /?resetToken=....
+  // Если token присутствует уже при первом открытии сайта, сразу показываем
+  // страницу создания нового пароля вместо обычной главной страницы.
+  const resetToken = new URLSearchParams(window.location.search).get('resetToken') || '';
+  const [currentPage, setCurrentPage] = useState<PageType>(resetToken ? 'reset-password' : 'landing');
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -40,21 +45,20 @@ export default function App() {
     auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         console.error('[App] Error getting initial session:', error);
-        // Clear any corrupted session
         auth.signOut({ scope: 'local' });
         return;
       }
-      
-      console.log('[App] Initial session check:', { 
-        hasSession: !!session, 
+
+      console.log('[App] Initial session check:', {
+        hasSession: !!session,
         userId: session?.user?.id,
         email: session?.user?.email,
         tokenLength: session?.access_token?.length,
         tokenPreview: session?.access_token ? session.access_token.substring(0, 30) + '...' : 'N/A'
       });
-      
+
       setIsLoggedIn(!!session);
-      
+
       if (session?.access_token) {
         console.log('[App] ✓ Found valid session, fetching profile...');
         fetchProfile(session.access_token);
@@ -67,15 +71,15 @@ export default function App() {
     });
 
     const { data: { subscription } } = auth.onAuthStateChange((event, session) => {
-      console.log('[App] Auth state changed:', { 
-        event, 
+      console.log('[App] Auth state changed:', {
+        event,
         hasSession: !!session,
         userId: session?.user?.id,
         email: session?.user?.email
       });
-      
+
       setIsLoggedIn(!!session);
-      
+
       if (session?.access_token) {
         console.log('[App] ✓ Session available, fetching profile...');
         fetchProfile(session.access_token);
@@ -90,33 +94,31 @@ export default function App() {
 
   const fetchProfile = async (token?: string) => {
     console.log('fetchProfile called with token:', !!token);
-    
+
     try {
-      // Always get fresh session if no token provided
       if (!token) {
         console.log('[fetchProfile] No token provided, getting session...');
         const { data: { session }, error } = await auth.getSession();
-        
+
         if (error) {
           console.error('[fetchProfile] Error getting session:', error);
           return;
         }
-        
+
         if (!session) {
           console.warn('[fetchProfile] No session available');
           return;
         }
-        
-        // Check if token is expired and refresh if needed
+
         const expiresAt = session.expires_at;
         const now = Math.floor(Date.now() / 1000);
-        
+
         if (expiresAt && expiresAt < now + 60) {
           console.log('[fetchProfile] Token expiring soon, refreshing session...');
-          
+
           try {
             const { data: { session: newSession }, error: refreshError } = await auth.refreshSession();
-            
+
             if (refreshError || !newSession) {
               console.error('[fetchProfile] Failed to refresh session:', refreshError);
               await auth.signOut({ scope: 'local' });
@@ -124,7 +126,7 @@ export default function App() {
               setUserProfile(null);
               return;
             }
-            
+
             token = newSession.access_token;
             console.log('[fetchProfile] ✓ Session refreshed successfully');
           } catch (refreshErr) {
@@ -138,42 +140,38 @@ export default function App() {
           token = session.access_token;
         }
       }
-      
+
       const profile = await apiRequest('/profile', 'GET', undefined, token);
       setUserProfile(profile);
       console.log('Profile fetched successfully:', profile);
     } catch (e: any) {
       console.error('Profile fetch error:', e);
-      // Only log and handle if it's truly an auth error (not just initial load without session)
       if (e.message && (e.message.includes('401') || e.message.includes('Unauthorized'))) {
-          console.error('Profile fetch failed - unauthorized. Verifying session...');
-          
-          try {
-            // Try to refresh session
-            const { data: { session }, error } = await auth.refreshSession();
-            
-            if (!session || error) {
-                console.error('No valid session found, signing out');
-                await auth.signOut({ scope: 'local' });
-                setIsLoggedIn(false);
-                setUserProfile(null);
-            } else {
-                console.log('Session refreshed, retrying profile fetch...');
-                // Retry once with fresh token
-                setTimeout(() => fetchProfile(session.access_token), 500);
-            }
-          } catch (refreshErr) {
-            console.error('Refresh session failed, signing out:', refreshErr);
+        console.error('Profile fetch failed - unauthorized. Verifying session...');
+
+        try {
+          const { data: { session }, error } = await auth.refreshSession();
+
+          if (!session || error) {
+            console.error('No valid session found, signing out');
             await auth.signOut({ scope: 'local' });
             setIsLoggedIn(false);
             setUserProfile(null);
+          } else {
+            console.log('Session refreshed, retrying profile fetch...');
+            setTimeout(() => fetchProfile(session.access_token), 500);
           }
+        } catch (refreshErr) {
+          console.error('Refresh session failed, signing out:', refreshErr);
+          await auth.signOut({ scope: 'local' });
+          setIsLoggedIn(false);
+          setUserProfile(null);
+        }
       } else if (e.message && e.message.includes('503')) {
-          // Server is temporarily unavailable (likely restarting), retry after delay
-          console.warn('Server temporarily unavailable (503), retrying in 2 seconds...');
-          setTimeout(() => fetchProfile(token), 2000);
+        console.warn('Server temporarily unavailable (503), retrying in 2 seconds...');
+        setTimeout(() => fetchProfile(token), 2000);
       } else {
-          console.error('Profile fetch failed with unknown error:', e);
+        console.error('Profile fetch failed with unknown error:', e);
       }
     }
   };
@@ -201,15 +199,20 @@ export default function App() {
       return;
     }
     if (page === 'manage-competition' && param) {
-        setSelectedCompetitionId(param);
+      setSelectedCompetitionId(param);
     }
+
+    if (currentPage === 'reset-password' && page !== 'reset-password') {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+
     setCurrentPage(page);
     setMobileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleLogin = async () => {
-     setCurrentPage('cabinet');
+    setCurrentPage('cabinet');
   };
 
   const handleLogout = async () => {
@@ -252,16 +255,17 @@ export default function App() {
 
         {currentPage === 'landing' && <LandingPage onPageChange={showPage} isLoggedIn={isLoggedIn} />}
         {currentPage === 'cabinet' && (
-             <CabinetPage 
-                userProfile={userProfile} 
-                setUserProfile={setUserProfile}
-                onPageChange={showPage} 
-                showToast={showToast} 
-             />
+          <CabinetPage
+            userProfile={userProfile}
+            setUserProfile={setUserProfile}
+            onPageChange={showPage}
+            showToast={showToast}
+          />
         )}
         {currentPage === 'login' && <LoginPage onLogin={handleLogin} onPageChange={showPage} showToast={showToast} />}
         {currentPage === 'register' && <RegisterPage onPageChange={showPage} showToast={showToast} />}
         {currentPage === 'forgot-password' && <ForgotPasswordPage onPageChange={showPage} showToast={showToast} />}
+        {currentPage === 'reset-password' && <ResetPasswordPage token={resetToken} onPageChange={showPage} showToast={showToast} />}
         {currentPage === 'competitions' && <CompetitionsPage isLoggedIn={isLoggedIn} userProfile={userProfile} showToast={showToast} onPageChange={showPage} />}
         {currentPage === 'judges' && <JudgesPage userProfile={userProfile} showToast={showToast} />}
         {currentPage === 'teams' && <TeamsPage userProfile={userProfile} showToast={showToast} />}
@@ -270,12 +274,12 @@ export default function App() {
         {currentPage === 'rating' && <RatingPage showToast={showToast} />}
         {currentPage === 'admin' && <AdminPage userProfile={userProfile} showToast={showToast} />}
         {currentPage === 'manage-competition' && selectedCompetitionId && isLoggedIn && userProfile && (
-            <ManageCompetitionPage 
-                competitionId={selectedCompetitionId} 
-                onBack={() => showPage('competitions')} 
-                showToast={showToast}
-                userProfile={userProfile}
-            />
+          <ManageCompetitionPage
+            competitionId={selectedCompetitionId}
+            onBack={() => showPage('competitions')}
+            showToast={showToast}
+            userProfile={userProfile}
+          />
         )}
       </div>
     </div>
