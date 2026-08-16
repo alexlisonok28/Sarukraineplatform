@@ -275,7 +275,7 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
                     results: { 
                         ...newResults, 
                         total, 
-                        qualification 
+                        qualification
                     } 
                 };
             }
@@ -370,22 +370,43 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
 
     const downloadProtocolDOCX = async () => {
         try {
-            const { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType, AlignmentType } = await import('docx');
+            const { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType, AlignmentType, PageOrientation } = await import('docx');
             const groups: Record<string, ExtendedParticipant[]> = {};
+
+            // В протокол включаем только реально допущенных участников.
+            // Условие намеренно строгое: confirmed + category + class.
             participants.forEach(p => {
                 if (p.status !== 'confirmed') return;
                 if (p.category && p.class) {
-                    // Avoid duplication: if category and class are the same, use only category
                     const key = p.category === p.class ? p.category : `${p.category} - ${p.class}`;
                     if (!groups[key]) groups[key] = [];
                     groups[key].push(p);
                 }
             });
+
+            // Новые соревнования используют startDate/endDate, а старые данные могут
+            // содержать только date. Поэтому сохраняем обратную совместимость и,
+            // когда указана конечная дата, выводим в протоколе диапазон.
+            const startDateValue = competition?.startDate || competition?.date;
+            const startDate = startDateValue ? new Date(startDateValue).toLocaleDateString('uk-UA') : '';
+            const endDate = competition?.endDate ? new Date(competition.endDate).toLocaleDateString('uk-UA') : '';
+            const protocolDate = startDate && endDate && startDate !== endDate
+                ? `${startDate} - ${endDate}`
+                : startDate || endDate;
+
+            // Поле judges у соревнования хранит выбранных судей. Для строки
+            // «Головний суддя» используем первого судью из этого списка.
+            const competitionJudges = (competition as any)?.judges;
+            const headJudge = Array.isArray(competitionJudges) && competitionJudges.length > 0
+                ? String(competitionJudges[0])
+                : '';
+
             const sections: any[] = [];
             sections.push(new Paragraph({ text: 'ПРОТОКОЛ ЗМАГАНЬ', alignment: AlignmentType.CENTER, spacing: { after: 200 } }));
             sections.push(new Paragraph({ text: competition?.name || '', alignment: AlignmentType.CENTER, spacing: { after: 200 } }));
-            sections.push(new Paragraph({ text: `Дата: ${competition?.date ? new Date(competition.date).toLocaleDateString('uk-UA') : ''}`, spacing: { after: 100 } }));
+            sections.push(new Paragraph({ text: `Дата: ${protocolDate}`, spacing: { after: 100 } }));
             sections.push(new Paragraph({ text: `Місце: ${competition?.location || ''}`, spacing: { after: 400 } }));
+
             Object.keys(groups).forEach(groupName => {
                 const groupParticipants = groups[groupName];
                 groupParticipants.sort((a, b) => (a.results?.place || 999) - (b.results?.place || 999));
@@ -441,10 +462,25 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
                 });
                 sections.push(new Table({ rows: tableRows, width: { size: 100, type: WidthType.PERCENTAGE } }));
             });
+
             sections.push(new Paragraph({ text: '', spacing: { before: 600 } }));
-            sections.push(new Paragraph({ text: 'Головний суддя: _____________________', spacing: { after: 300 } }));
+            sections.push(new Paragraph({ text: `Головний суддя: ${headJudge || '_____________________'}`, spacing: { after: 300 } }));
             sections.push(new Paragraph({ text: 'Секретар: _____________________' }));
-            const doc = new Document({ sections: [{ children: sections }] });
+
+            // Альбомная ориентация дает таблице заметно больше ширины и не заставляет
+            // Word переносить почти каждое название колонки на несколько строк.
+            const doc = new Document({
+                sections: [{
+                    properties: {
+                        page: {
+                            size: {
+                                orientation: PageOrientation.LANDSCAPE,
+                            },
+                        },
+                    },
+                    children: sections,
+                }],
+            });
             const blob = await Packer.toBlob(doc);
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
