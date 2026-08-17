@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Competition } from '../types';
 import { X } from 'lucide-react';
 import { apiRequest } from '../utils/api';
+import { NativeSelect } from './ui/native-select';
 
 type CompetitionModalProps = {
   isOpen: boolean;
@@ -175,20 +176,19 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
           <div className="grid grid-cols-2 gap-4 mb-5">
             <div>
                 <label className="block text-base text-gray-900 mb-2 font-medium">Рівень змагань</label>
-                <select
-                  className={inputClassName}
+                <NativeSelect
                   value={formData.level}
                   onChange={(e) => setFormData({ ...formData, level: e.target.value })}
                   required
                 >
-                  <option value="" disabled className="bg-white">Оберіть рівень</option>
-                  <option value="Національні змагання" className="bg-white">Національні змагання</option>
-                  <option value="Міжнародні змагання" className="bg-white">Міжнародні змагання</option>
-                  <option value="Випробування" className="bg-white">Випробування</option>
-                  <option value="Відбіркові" className="bg-white">Відбіркові</option>
-                  <option value="CACT" className="bg-white">CACT</option>
-                  <option value="Відбіркові CACT" className="bg-white">Відбіркові CACT</option>
-                </select>
+                  <option value="" disabled>Оберіть рівень</option>
+                  <option value="Національні змагання">Національні змагання</option>
+                  <option value="Міжнародні змагання">Міжнародні змагання</option>
+                  <option value="Випробування">Випробування</option>
+                  <option value="Відбіркові">Відбіркові</option>
+                  <option value="CACT">CACT</option>
+                  <option value="Відбіркові CACT">Відбіркові CACT</option>
+                </NativeSelect>
             </div>
              <div>
                 <label className="block text-base text-gray-900 mb-2 font-medium">Категорії (через кому)</label>
@@ -216,17 +216,16 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
 
           <div className="mb-5">
             <label className="block text-base text-gray-900 mb-2 font-medium">Статус змагань</label>
-            <select
-              className={inputClassName}
+            <NativeSelect
               value={formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
               required
             >
-              <option value="planned" className="bg-white">Реєстрація скоро відкриється</option>
-              <option value="registration_open" className="bg-white">Йде реєстрація</option>
-              <option value="registration_closed" className="bg-white">Реєстрація завершена</option>
-              <option value="completed" className="bg-white">Завершені</option>
-            </select>
+              <option value="planned">Реєстрація скоро відкриється</option>
+              <option value="registration_open">Йде реєстрація</option>
+              <option value="registration_closed">Реєстрація завершена</option>
+              <option value="completed">Завершені</option>
+            </NativeSelect>
           </div>
 
            <div className="mb-5">
