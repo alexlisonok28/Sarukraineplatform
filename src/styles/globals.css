@@ -39,13 +39,23 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /*
+   * GLOBAL STANDARD FORM SIZE
+   * -------------------------
+   * One source of truth for ordinary inputs and dropdowns. 44 px is large
+   * enough for comfortable desktop/mobile interaction and prevents pages from
+   * inventing slightly different 36/40/46 px controls.
+   */
+  --form-control-height: 44px;
+  --form-control-padding-y: 8px;
 }
 
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
+  --card-foreground: oklch(0.145 0 0);
   --popover: oklch(0.145 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.985 0 0);
@@ -126,6 +136,27 @@
 
   body {
     @apply bg-background text-foreground;
+  }
+
+  /*
+   * Some older forms still use native HTML <input>/<select> elements instead
+   * of the shared React UI components. Apply the same standard measurements
+   * here so those screens remain visually consistent too.
+   *
+   * File inputs, checkboxes and radio buttons are intentionally excluded:
+   * they are different control types and should not be forced to 44 px height.
+   */
+  input:not([type='file']):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select:not([multiple]) {
+    height: var(--form-control-height);
+    min-height: var(--form-control-height);
+    padding-top: var(--form-control-padding-y);
+    padding-bottom: var(--form-control-padding-y);
+    line-height: 1.5;
+  }
+
+  input::placeholder {
+    line-height: 1.5;
   }
 }
 
