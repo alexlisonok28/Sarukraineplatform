@@ -186,6 +186,10 @@ export default function DocumentsPage({ userProfile, showToast }: DocumentsPageP
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
           setSelectedFile(e.target.files[0]);
+
+          // The File object is already stored in React state, so the native input can be cleared.
+          // This is important because it lets the user delete a file and then choose that same file again.
+          e.target.value = '';
       }
   };
 
@@ -327,13 +331,34 @@ export default function DocumentsPage({ userProfile, showToast }: DocumentsPageP
                   className="hidden"
                   accept=".pdf,.doc,.docx,.xls,.xlsx"
                 />
-                <label 
-                  htmlFor="file"
-                  className="flex items-center justify-center gap-2 w-full p-4 bg-white border-2 border-dashed border-gray-300 hover:border-[#007AFF] rounded-xl cursor-pointer transition-all text-gray-700 hover:text-gray-900 text-base"
-                >
-                  <Upload size={20} />
-                  {selectedFile ? selectedFile.name : editingDocument ? 'Оберіть новий файл (опціонально)' : 'Оберіть файл'}
-                </label>
+
+                {selectedFile ? (
+                  // After selection we replace the upload prompt with a compact file row.
+                  // Trash2 clears only the not-yet-uploaded file and returns the control to its initial state.
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <span className="min-w-0 flex-1 truncate text-base text-gray-700" title={selectedFile.name}>
+                      {selectedFile.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFile(null)}
+                      disabled={isUploading}
+                      className="shrink-0 rounded-lg p-2 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={`Видалити файл ${selectedFile.name}`}
+                      title="Видалити файл"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                ) : (
+                  <label 
+                    htmlFor="file"
+                    className="flex items-center justify-center gap-2 w-full p-4 bg-white border-2 border-dashed border-gray-300 hover:border-[#007AFF] rounded-xl cursor-pointer transition-all text-gray-700 hover:text-gray-900 text-base"
+                  >
+                    <Upload size={20} />
+                    {editingDocument ? 'Оберіть новий файл (опціонально)' : 'Оберіть файл'}
+                  </label>
+                )}
               </div>
             </div>
           </div>
