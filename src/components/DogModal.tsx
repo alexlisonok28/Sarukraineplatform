@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Dog } from '../types';
 import { X } from 'lucide-react';
+import { NativeSelect } from './ui/native-select';
 
 type DogModalProps = {
   isOpen: boolean;
@@ -94,8 +95,7 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
 
           <div className="mb-5">
             <label className="block text-base text-gray-900 mb-2 font-medium">Стать собаки</label>
-            <select
-              className={inputClassName}
+            <NativeSelect
               value={formData.gender}
               onChange={(e) => setFormData({ ...formData, gender: e.target.value as 'male' | 'female' })}
               required
@@ -103,7 +103,7 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
               <option value="">Оберіть стать</option>
               <option value="male">Кобель</option>
               <option value="female">Сука</option>
-            </select>
+            </NativeSelect>
           </div>
 
           <div className="mb-5">
