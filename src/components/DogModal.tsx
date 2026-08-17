@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dog } from '../types';
 import { X } from 'lucide-react';
 import { NativeSelect } from './ui/native-select';
+import { NativeDateInput } from './ui/native-date-input';
 
 type DogModalProps = {
   isOpen: boolean;
@@ -84,9 +85,7 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
 
           <div className="mb-5">
             <label className="block text-base text-gray-900 mb-2 font-medium">Дата народження</label>
-            <input
-              type="date"
-              className={inputClassName}
+            <NativeDateInput
               value={formData.birth}
               onChange={(e) => setFormData({ ...formData, birth: e.target.value })}
               required
