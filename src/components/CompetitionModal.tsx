@@ -3,6 +3,7 @@ import { Competition } from '../types';
 import { X } from 'lucide-react';
 import { apiRequest } from '../utils/api';
 import { NativeSelect } from './ui/native-select';
+import { NativeDateInput } from './ui/native-date-input';
 
 type CompetitionModalProps = {
   isOpen: boolean;
@@ -143,21 +144,17 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
           <div className="grid grid-cols-2 gap-4 mb-5">
             <div>
                 <label className="block text-base text-gray-900 mb-2 font-medium">Дата початку</label>
-                <input
-                type="date"
-                className={inputClassName}
-                value={formData.startDate}
-                onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                required
+                <NativeDateInput
+                  value={formData.startDate}
+                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                  required
                 />
             </div>
              <div>
                 <label className="block text-base text-gray-900 mb-2 font-medium">Дата завершення</label>
-                <input
-                type="date"
-                className={inputClassName}
-                value={formData.endDate}
-                onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                <NativeDateInput
+                  value={formData.endDate}
+                  onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
                 />
             </div>
           </div>
