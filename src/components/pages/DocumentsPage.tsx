@@ -14,6 +14,7 @@ import { Label } from "../ui/label";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
+import { NativeSelect } from "../ui/native-select";
 
 type DocumentsPageProps = {
   userProfile?: UserProfile | null;
@@ -294,11 +295,10 @@ export default function DocumentsPage({ userProfile, showToast }: DocumentsPageP
             </div>
             <div className="grid gap-2">
               <Label htmlFor="category" className="text-gray-900 font-medium">Категорія</Label>
-              <select
+              <NativeSelect
                 id="category"
                 value={formData.category}
                 onChange={(e) => setFormData({...formData, category: e.target.value})}
-                className="w-full px-4 py-[14px] bg-white border border-gray-300 rounded-[10px] text-gray-900 transition-all duration-300 focus:outline-none focus:border-[#007AFF] text-base cursor-pointer"
                 required
               >
                 <option value="">Оберіть категорію</option>
@@ -307,7 +307,7 @@ export default function DocumentsPage({ userProfile, showToast }: DocumentsPageP
                 <option value="Інструкція">Інструкція</option>
                 <option value="Форма">Форма</option>
                 <option value="Інше">Інше</option>
-              </select>
+              </NativeSelect>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="description" className="text-gray-900 font-medium">Опис (опціонально)</Label>
@@ -333,8 +333,6 @@ export default function DocumentsPage({ userProfile, showToast }: DocumentsPageP
                 />
 
                 {selectedFile ? (
-                  // After selection we replace the upload prompt with a compact file row.
-                  // Trash2 clears only the not-yet-uploaded file and returns the control to its initial state.
                   <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                     <span className="min-w-0 flex-1 truncate text-base text-gray-700" title={selectedFile.name}>
                       {selectedFile.name}
