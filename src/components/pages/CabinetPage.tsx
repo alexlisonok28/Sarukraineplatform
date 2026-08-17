@@ -268,8 +268,8 @@ export default function CabinetPage({ userProfile, setUserProfile, onPageChange,
                   <h3 className="text-gray-900 text-xl font-semibold">Технічна підтримка</h3>
                 </div>
                 <p className="text-gray-600 mb-6 text-base">Маєте питання щодо роботи платформи? Зв'яжіться з нами:</p>
-                <a href="mailto:support@sar-ukraine.com" className="inline-flex items-center gap-3 px-7 py-[14px] bg-gray-100 hover:bg-gray-200 rounded-xl text-[#007AFF] no-underline transition-all duration-300 text-base">
-                  <Mail className="w-5 h-5" /> support@sar-ukraine.com
+                <a href="mailto:sarukraine@ukr.net" className="inline-flex items-center gap-3 px-7 py-[14px] bg-gray-100 hover:bg-gray-200 rounded-xl text-[#007AFF] no-underline transition-all duration-300 text-base">
+                  <Mail className="w-5 h-5" /> sarukraine@ukr.net
                 </a>
               </div>
             </div>
