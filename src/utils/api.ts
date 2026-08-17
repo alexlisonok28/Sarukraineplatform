@@ -41,9 +41,19 @@ export async function apiRequest(endpoint: string, method = 'GET', body?: unknow
 
   const headers: Record<string, string> = {};
 
-  // JSON — основной формат обмена данными между frontend и backend.
-  // Для FormData Content-Type браузер выставляет сам вместе с boundary.
-  if (!(body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  /*
+   * Content-Type: application/json ставим ТОЛЬКО если действительно отправляем JSON-тело.
+   *
+   * Раньше заголовок добавлялся даже для DELETE без body. На сервере наличие этого
+   * заголовка означало «нужно вызвать request.json()». В результате пустой DELETE-запрос
+   * пытались разобрать как JSON и он падал до выполнения самого удаления.
+   *
+   * Поэтому DELETE /documents/:id (и потенциально другие удаления) возвращал ошибку,
+   * хотя endpoint и права пользователя были корректными.
+   */
+  if (body !== undefined && !(body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   // Bearer-токен сообщает серверу, от имени какого пользователя выполняется запрос.
   if (token) headers.Authorization = `Bearer ${token}`;
