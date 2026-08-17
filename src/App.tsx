@@ -36,39 +36,79 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<PageType>(resetToken ? 'reset-password' : 'landing');
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // Пока приложение не проверило сохраненную сессию, мы не должны показывать
+  // ни публичный, ни авторизованный интерфейс. Иначе после F5 на долю секунды
+  // рендерится LandingPage, а затем Header уже узнает, что пользователь вошел —
+  // из-за этого одновременно появлялись «Увійти / Реєстрація» и «Вийти».
+  const [authInitialized, setAuthInitialized] = useState(false);
+
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
-    console.log('[App] Initializing auth state...');
-    auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error('[App] Error getting initial session:', error);
-        auth.signOut({ scope: 'local' });
-        return;
+    let isCancelled = false;
+
+    const initializeAuth = async () => {
+      console.log('[App] Initializing auth state...');
+
+      try {
+        const { data: { session }, error } = await auth.getSession();
+
+        if (isCancelled) return;
+
+        if (error) {
+          console.error('[App] Error getting initial session:', error);
+          await auth.signOut({ scope: 'local' });
+          setIsLoggedIn(false);
+          setUserProfile(null);
+          return;
+        }
+
+        console.log('[App] Initial session check:', {
+          hasSession: !!session,
+          userId: session?.user?.id,
+          email: session?.user?.email,
+          tokenLength: session?.access_token?.length,
+          tokenPreview: session?.access_token ? session.access_token.substring(0, 30) + '...' : 'N/A'
+        });
+
+        setIsLoggedIn(!!session);
+
+        if (session?.access_token) {
+          console.log('[App] ✓ Found valid session, fetching profile...');
+
+          // Дожидаемся профиля до окончания инициализации auth. Так защищенные
+          // элементы Header/Cabinet не получают промежуточное состояние, в котором
+          // пользователь уже logged in, но его профиль еще не загружен.
+          await fetchProfile(session.access_token);
+
+          if (!isCancelled && !resetToken) {
+            // После обычного F5 React снова начинает с `landing`, потому что у
+            // проекта пока нет URL-маршрутизации по страницам. Если сессия жива,
+            // стартовой страницей авторизованного пользователя должен быть кабинет.
+            setCurrentPage(prev => prev === 'landing' ? 'cabinet' : prev);
+          }
+        } else {
+          console.log('[App] No active session - user needs to login');
+        }
+      } catch (err) {
+        console.error('[App] Unexpected error in getSession:', err);
+        await auth.signOut({ scope: 'local' });
+        if (!isCancelled) {
+          setIsLoggedIn(false);
+          setUserProfile(null);
+        }
+      } finally {
+        if (!isCancelled) {
+          // Только после полной проверки сессии разрешаем отрисовывать приложение.
+          setAuthInitialized(true);
+        }
       }
+    };
 
-      console.log('[App] Initial session check:', {
-        hasSession: !!session,
-        userId: session?.user?.id,
-        email: session?.user?.email,
-        tokenLength: session?.access_token?.length,
-        tokenPreview: session?.access_token ? session.access_token.substring(0, 30) + '...' : 'N/A'
-      });
-
-      setIsLoggedIn(!!session);
-
-      if (session?.access_token) {
-        console.log('[App] ✓ Found valid session, fetching profile...');
-        fetchProfile(session.access_token);
-      } else {
-        console.log('[App] No active session - user needs to login');
-      }
-    }).catch((err) => {
-      console.error('[App] Unexpected error in getSession:', err);
-      auth.signOut({ scope: 'local' });
-    });
+    initializeAuth();
 
     const { data: { subscription } } = auth.onAuthStateChange((event, session) => {
       console.log('[App] Auth state changed:', {
@@ -89,7 +129,10 @@ export default function App() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isCancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const fetchProfile = async (token?: string) => {
@@ -218,6 +261,7 @@ export default function App() {
   const handleLogout = async () => {
     await auth.signOut();
     setIsLoggedIn(false);
+    setUserProfile(null);
     showToast('Ви вийшли з системи', 'info');
     setCurrentPage('landing');
   };
@@ -225,6 +269,13 @@ export default function App() {
   const goToHome = () => {
     setCurrentPage(isLoggedIn ? 'cabinet' : 'landing');
   };
+
+  // Не показываем Header/LandingPage до восстановления сессии после F5.
+  // Фон остается тем же, поэтому пользователь видит короткий нейтральный переход,
+  // а не неверные кнопки входа/выхода.
+  if (!authInitialized) {
+    return <div className="min-h-screen bg-[#F5F5F7]" />;
+  }
 
   return (
     <div className="min-h-screen bg-[#F5F5F7] text-gray-900">
