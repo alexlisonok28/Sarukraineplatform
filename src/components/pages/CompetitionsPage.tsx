@@ -141,9 +141,6 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
           return;
       }
 
-      // Быстрая клиентская проверка нужна не как единственная защита, а чтобы
-      // пользователь сразу получил понятное сообщение и мы не загружали документы
-      // впустую. Backend ниже всё равно повторно проверяет дубль.
       const selectedCompetition = competitions.find(c => c.id === selectedCompId);
       const duplicateExists = (selectedCompetition?.participants || []).some((participant: any) =>
           String(participant.userId || '') === String(userProfile?.id || '') &&
@@ -194,6 +191,24 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
 
   const removeRegisterFile = (fileIndex: number) => {
       setRegisterFiles(currentFiles => currentFiles.filter((_, index) => index !== fileIndex));
+  };
+
+  const addRegisterFiles = (selectedFiles: File[]) => {
+      setRegisterFiles(currentFiles => {
+          const result = [...currentFiles];
+
+          selectedFiles.forEach(file => {
+              const alreadyAdded = result.some(existingFile =>
+                  existingFile.name === file.name &&
+                  existingFile.size === file.size &&
+                  existingFile.lastModified === file.lastModified
+              );
+
+              if (!alreadyAdded) result.push(file);
+          });
+
+          return result;
+      });
   };
   
   const formatDate = (dateString?: string, endDateString?: string) => {
@@ -401,7 +416,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
                             multiple
                             onChange={(e) => {
                                 if (e.target.files) {
-                                    setRegisterFiles(Array.from(e.target.files));
+                                    addRegisterFiles(Array.from(e.target.files));
                                     e.target.value = '';
                                 }
                             }}
@@ -413,7 +428,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
                             className={`flex items-center justify-center gap-2 w-full p-4 bg-white border-2 border-dashed rounded-xl cursor-pointer transition-all ${registerFiles.length > 0 ? 'border-[#007AFF] text-[#007AFF]' : 'border-gray-300 text-gray-600 hover:border-[#007AFF] hover:text-gray-900'} text-base`}
                         >
                             <Upload size={20} />
-                            {registerFiles.length > 0 ? 'Обрати інші файли' : 'Завантажити файли'}
+                            {registerFiles.length > 0 ? 'Додати ще файли' : 'Завантажити файли'}
                         </label>
                     </div>
 
