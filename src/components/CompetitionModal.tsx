@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Competition } from '../types';
 import { Check, ChevronDown, X } from 'lucide-react';
 import { apiRequest } from '../utils/api';
 import { NativeSelect } from './ui/native-select';
 import { NativeDateInput } from './ui/native-date-input';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 type CompetitionModalProps = {
   isOpen: boolean;
@@ -16,9 +15,9 @@ type CompetitionModalProps = {
 const inputClassName = "w-full px-4 py-[14px] bg-white border border-gray-300 rounded-[10px] text-gray-900 transition-all duration-300 focus:outline-none focus:border-[#007AFF] text-base";
 
 const categoryOptions = [
-  { value: 'rh-fl-b', label: 'RH-FL-B' },
-  { value: 'rh-t-b', label: 'RH-T-B' },
-  { value: 'rh-f-b', label: 'RH-F-B' },
+  'RH-FL-V', 'RH-FL-A', 'RH-FL-B',
+  'RH-T-V', 'RH-T-A', 'RH-T-B',
+  'RH-F-V', 'RH-F-A', 'RH-F-B',
 ];
 
 export default function CompetitionModal({ isOpen, onClose, onSave, editingComp }: CompetitionModalProps) {
@@ -28,6 +27,8 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
   });
   const [availableJudges, setAvailableJudges] = useState<any[]>([]);
   const [categoryError, setCategoryError] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const categoryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { fetchJudges(); }, []);
   const fetchJudges = async () => {
@@ -35,7 +36,18 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
   };
 
   useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (categoryRef.current && !categoryRef.current.contains(event.target as Node)) {
+        setCategoryOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  useEffect(() => {
     setCategoryError(false);
+    setCategoryOpen(false);
     if (editingComp) {
       setFormData({
         name: editingComp.name,
@@ -43,7 +55,7 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
         endDate: editingComp.endDate || '',
         location: editingComp.location,
         level: editingComp.level,
-        categories: editingComp.categories || [],
+        categories: (editingComp.categories || []).map(category => String(category).toUpperCase()),
         description: editingComp.description,
         maxParticipants: editingComp.maxParticipants,
         organizerName: editingComp.organizerName || '',
@@ -75,10 +87,6 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
     setFormData({ ...formData, categories });
     if (categories.length > 0) setCategoryError(false);
   };
-
-  const selectedCategoryLabels = categoryOptions
-    .filter(option => formData.categories.includes(option.value))
-    .map(option => option.label);
 
   if (!isOpen) return null;
 
@@ -116,38 +124,48 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
             </div>
             <div>
               <label className="block text-base text-gray-900 mb-2 font-medium">Категорії</label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    aria-invalid={categoryError}
-                    className={`w-full h-11 px-4 bg-white border rounded-[10px] text-base text-left flex items-center justify-between gap-3 transition-all duration-300 focus:outline-none focus:border-[#007AFF] ${categoryError ? 'border-red-500' : 'border-gray-300'}`}
+              <div ref={categoryRef} className="relative">
+                <button
+                  type="button"
+                  aria-expanded={categoryOpen}
+                  aria-haspopup="listbox"
+                  aria-invalid={categoryError}
+                  onClick={() => setCategoryOpen(open => !open)}
+                  className={`w-full h-11 px-4 bg-white border rounded-[10px] text-base text-left flex items-center justify-between gap-3 transition-all duration-300 focus:outline-none focus:border-[#007AFF] ${categoryError ? 'border-red-500' : 'border-gray-300'}`}
+                >
+                  <span className={formData.categories.length ? 'text-gray-900 truncate' : 'text-gray-500 truncate'}>
+                    {formData.categories.length ? formData.categories.join(', ') : 'Оберіть категорії'}
+                  </span>
+                  <ChevronDown className={`w-5 h-5 text-gray-500 shrink-0 transition-transform ${categoryOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                </button>
+
+                {categoryOpen && (
+                  <div
+                    role="listbox"
+                    aria-multiselectable="true"
+                    className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-[10px] shadow-lg z-[400] p-1 max-h-[310px] overflow-y-auto"
                   >
-                    <span className={selectedCategoryLabels.length ? 'text-gray-900 truncate' : 'text-gray-500 truncate'}>
-                      {selectedCategoryLabels.length ? selectedCategoryLabels.join(', ') : 'Оберіть категорії'}
-                    </span>
-                    <ChevronDown className="w-5 h-5 text-gray-500 shrink-0" aria-hidden="true" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-1 bg-white border border-gray-200 rounded-[10px] shadow-lg z-[300]">
-                  {categoryOptions.map(option => {
-                    const selected = formData.categories.includes(option.value);
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => toggleCategory(option.value)}
-                        className="w-full min-h-10 px-3 py-2 flex items-center gap-3 rounded-md text-left text-gray-900 hover:bg-gray-100 transition-colors"
-                      >
-                        <span className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${selected ? 'bg-[#007AFF] border-[#007AFF] text-white' : 'border-gray-300 bg-white'}`}>
-                          {selected && <Check className="w-4 h-4" aria-hidden="true" />}
-                        </span>
-                        <span>{option.label}</span>
-                      </button>
-                    );
-                  })}
-                </PopoverContent>
-              </Popover>
+                    {categoryOptions.map(category => {
+                      const selected = formData.categories.includes(category);
+                      return (
+                        <button
+                          key={category}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => toggleCategory(category)}
+                          className="w-full min-h-10 px-3 py-2 flex items-center gap-3 rounded-md text-left text-gray-900 hover:bg-gray-100 transition-colors"
+                        >
+                          <span className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${selected ? 'bg-[#007AFF] border-[#007AFF] text-white' : 'border-gray-300 bg-white'}`}>
+                            {selected && <Check className="w-4 h-4" aria-hidden="true" />}
+                          </span>
+                          <span>{category}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               {categoryError && <p className="mt-1.5 text-sm text-red-600">Оберіть щонайменше одну категорію</p>}
             </div>
           </div>
