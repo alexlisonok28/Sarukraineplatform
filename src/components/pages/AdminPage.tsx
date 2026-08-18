@@ -1,17 +1,3 @@
-/*
- * СТРАНИЦА АДМИНИСТРАТОРА
- * -----------------------
- * Здесь администратор видит зарегистрированных пользователей и меняет их роли.
- *
- * React-часть отвечает только за интерфейс. Реальная проверка роли admin и само
- * изменение роли выполняются backend API (`/admin/users` и `/admin/users/:id/role`).
- *
- * Основные React-механизмы в этом файле:
- * - useState — хранит список пользователей, состояние загрузки и ID обновляемой строки;
- * - useEffect — один раз после открытия страницы запускает загрузку пользователей;
- * - props — App.tsx передаёт сюда профиль текущего пользователя и функцию toast;
- * - условный return — не-admin получает экран «Доступ заборонено».
- */
 import { useState, useEffect } from 'react';
 import { apiRequest } from '../../utils/api';
 import { UserProfile, UserRole } from '../../types';
@@ -33,33 +19,35 @@ import {
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
-import { Loader2, Shield, User, Users } from 'lucide-react';
-import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+import { Loader2, User, Users, Trash2 } from 'lucide-react';
 
-// Props — данные, которые родительский App.tsx передаёт этой странице.
 interface AdminPageProps {
   userProfile: UserProfile | null;
   showToast: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
 export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
-  // users — текущий список пользователей из Neon.
-  // setUsers — функция React, которая заменяет список и вызывает перерисовку таблицы.
   const [users, setUsers] = useState<UserProfile[]>([]);
-
-  // loading управляет показом индикатора загрузки.
   const [loading, setLoading] = useState(true);
-
-  // updating хранит ID пользователя, роль которого сейчас меняется.
-  // Это позволяет временно заблокировать Select именно в нужной строке.
   const [updating, setUpdating] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<UserProfile | null>(null);
+  const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
 
-  // useEffect с [] выполняется один раз после первого отображения страницы.
   useEffect(() => {
     fetchUsers();
   }, []);
 
-  // Получаем пользователей с backend. Этот endpoint сервер разрешает только admin.
   const fetchUsers = async () => {
     try {
       setLoading(true);
@@ -69,24 +57,15 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
       console.error('Failed to fetch users', error);
       showToast('Не вдалося завантажити список користувачів', 'error');
     } finally {
-      // finally выполняется и при успехе, и при ошибке.
       setLoading(false);
     }
   };
 
-  // Вызывается после выбора новой роли в выпадающем списке.
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     try {
       setUpdating(userId);
-
-      // Сначала сохраняем роль на сервере.
       await apiRequest(`/admin/users/${userId}/role`, 'PUT', { role: newRole });
-
-      // Затем локально обновляем нужную строку, чтобы не перезагружать всю таблицу.
-      setUsers(users.map(u =>
-        u.id === userId ? { ...u, role: newRole } : u
-      ));
-
+      setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
       showToast('Роль користувача оновлено', 'success');
     } catch (error) {
       console.error('Failed to update role', error);
@@ -96,34 +75,60 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
     }
   };
 
-  // Вспомогательная функция: выбирает CSS-классы цвета badge по роли.
+  const openDeleteDialog = (target: UserProfile) => {
+    if (target.id === userProfile?.id) {
+      showToast('Не можна видалити власний обліковий запис', 'error');
+      return;
+    }
+    setDeleteCandidate(target);
+    setDeleteStep(1);
+  };
+
+  const closeDeleteDialog = () => {
+    if (deleting) return;
+    setDeleteCandidate(null);
+    setDeleteStep(1);
+  };
+
+  const confirmFirstDeleteStep = () => {
+    setDeleteStep(2);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!deleteCandidate) return;
+
+    try {
+      setDeleting(deleteCandidate.id);
+      await apiRequest(`/admin/users/${deleteCandidate.id}`, 'DELETE');
+      setUsers(current => current.filter(u => u.id !== deleteCandidate.id));
+      showToast('Користувача видалено', 'success');
+      setDeleteCandidate(null);
+      setDeleteStep(1);
+    } catch (error) {
+      console.error('Failed to delete user', error);
+      showToast('Не вдалося видалити користувача', 'error');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   const getRoleBadgeColor = (role: UserRole) => {
     switch (role) {
-      case 'admin':
-        return 'bg-red-100 text-red-700 hover:bg-red-200';
-      case 'organizer':
-        return 'bg-purple-100 text-purple-700 hover:bg-purple-200';
-      default:
-        return 'bg-blue-100 text-blue-700 hover:bg-blue-200';
+      case 'admin': return 'bg-red-100 text-red-700 hover:bg-red-200';
+      case 'organizer': return 'bg-purple-100 text-purple-700 hover:bg-purple-200';
+      default: return 'bg-blue-100 text-blue-700 hover:bg-blue-200';
     }
   };
 
-  // Техническое имя роли превращаем в понятную подпись для интерфейса.
   const translateRole = (role: UserRole) => {
     switch (role) {
-      case 'admin':
-        return 'Адміністратор';
-      case 'organizer':
-        return 'Організатор';
-      case 'user':
-        return 'Користувач';
-      default:
-        return role;
+      case 'admin': return 'Адміністратор';
+      case 'organizer': return 'Організатор';
+      case 'user': return 'Користувач';
+      default: return role;
     }
   };
 
-  // UI-защита: если страницу каким-то образом открыл не admin, ничего
-  // административного ему не показываем. Backend всё равно проверяет роль отдельно.
   if (!userProfile || userProfile.role !== 'admin') {
     return (
       <div className="min-h-screen pt-24 px-6 flex justify-center">
@@ -153,7 +158,6 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
         </CardHeader>
         <CardContent>
           {loading ? (
-            // Пока fetchUsers не завершился, показываем spinner.
             <div className="flex justify-center py-12">
               <Loader2 className="w-8 h-8 text-[#007AFF] animate-spin" />
             </div>
@@ -168,7 +172,6 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {/* map превращает каждый объект user в отдельную строку таблицы. */}
                 {users.map((user) => (
                   <TableRow key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <TableCell className="text-gray-900">
@@ -186,22 +189,33 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Select
-                        // Нельзя менять собственную роль из UI и нельзя повторно
-                        // нажимать Select, пока предыдущий запрос ещё выполняется.
-                        disabled={updating === user.id || user.id === userProfile.id}
-                        value={user.role}
-                        onValueChange={(value: UserRole) => handleRoleChange(user.id, value)}
-                      >
-                        <SelectTrigger className="w-[140px] bg-white border-gray-200 text-gray-900">
-                          <SelectValue placeholder="Оберіть роль" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-white border-gray-200 text-gray-900">
-                          <SelectItem value="user">Користувач</SelectItem>
-                          <SelectItem value="organizer">Організатор</SelectItem>
-                          <SelectItem value="admin">Адміністратор</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="flex items-center gap-3">
+                        <Select
+                          disabled={updating === user.id || deleting === user.id || user.id === userProfile.id}
+                          value={user.role}
+                          onValueChange={(value: UserRole) => handleRoleChange(user.id, value)}
+                        >
+                          <SelectTrigger className="w-[140px] bg-white border-gray-200 text-gray-900">
+                            <SelectValue placeholder="Оберіть роль" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-white border-gray-200 text-gray-900">
+                            <SelectItem value="user">Користувач</SelectItem>
+                            <SelectItem value="organizer">Організатор</SelectItem>
+                            <SelectItem value="admin">Адміністратор</SelectItem>
+                          </SelectContent>
+                        </Select>
+
+                        <button
+                          type="button"
+                          onClick={() => openDeleteDialog(user)}
+                          disabled={user.id === userProfile.id || deleting === user.id}
+                          className="action-icon-button bg-red-100 text-red-700 hover:bg-red-200 border-none cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                          aria-label={`Видалити користувача ${user.name || user.email}`}
+                          title={user.id === userProfile.id ? 'Не можна видалити власний обліковий запис' : 'Видалити користувача'}
+                        >
+                          {deleting === user.id ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                        </button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -210,6 +224,50 @@ export default function AdminPage({ userProfile, showToast }: AdminPageProps) {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleteCandidate} onOpenChange={(open) => !open && closeDeleteDialog()}>
+        <AlertDialogContent className="bg-white text-gray-900 border-gray-200">
+          {deleteStep === 1 ? (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Видалити користувача?</AlertDialogTitle>
+                <AlertDialogDescription className="text-gray-600">
+                  Ви збираєтеся видалити <strong>{deleteCandidate?.name || 'користувача'}</strong> ({deleteCandidate?.email}).
+                  Це небезпечна дія і потребує повторного підтвердження.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={closeDeleteDialog}>Скасувати</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => { e.preventDefault(); confirmFirstDeleteStep(); }}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  Продовжити видалення
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          ) : (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Підтвердіть видалення ще раз</AlertDialogTitle>
+                <AlertDialogDescription className="text-gray-600">
+                  Обліковий запис <strong>{deleteCandidate?.name || deleteCandidate?.email}</strong> буде видалено без можливості відновлення. Ви точно хочете продовжити?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={!!deleting} onClick={closeDeleteDialog}>Скасувати</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={!!deleting}
+                  onClick={(e) => { e.preventDefault(); confirmDeleteUser(); }}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {deleting ? 'Видалення...' : 'Так, видалити користувача'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
