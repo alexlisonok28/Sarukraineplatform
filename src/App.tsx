@@ -25,7 +25,7 @@ export type PageType = 'landing' | 'cabinet' | 'login' | 'register' | 'forgot-pa
 export type Toast = {
   id: string;
   message: string;
-  type: 'success' | 'error' | 'info';
+  type: 'success' | 'error' | 'warning' | 'info';
 };
 
 export default function App() {
