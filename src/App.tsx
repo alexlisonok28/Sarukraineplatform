@@ -29,20 +29,11 @@ export type Toast = {
 };
 
 export default function App() {
-  // Ссылка из письма имеет вид /?resetToken=....
-  // Если token присутствует уже при первом открытии сайта, сразу показываем
-  // страницу создания нового пароля вместо обычной главной страницы.
   const resetToken = new URLSearchParams(window.location.search).get('resetToken') || '';
   const [currentPage, setCurrentPage] = useState<PageType>(resetToken ? 'reset-password' : 'landing');
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-
-  // Пока приложение не проверило сохраненную сессию, мы не должны показывать
-  // ни публичный, ни авторизованный интерфейс. Иначе после F5 на долю секунды
-  // рендерится LandingPage, а затем Header уже узнает, что пользователь вошел —
-  // из-за этого одновременно появлялись «Увійти / Реєстрація» и «Вийти».
   const [authInitialized, setAuthInitialized] = useState(false);
-
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -78,16 +69,9 @@ export default function App() {
 
         if (session?.access_token) {
           console.log('[App] ✓ Found valid session, fetching profile...');
-
-          // Дожидаемся профиля до окончания инициализации auth. Так защищенные
-          // элементы Header/Cabinet не получают промежуточное состояние, в котором
-          // пользователь уже logged in, но его профиль еще не загружен.
           await fetchProfile(session.access_token);
 
           if (!isCancelled && !resetToken) {
-            // После обычного F5 React снова начинает с `landing`, потому что у
-            // проекта пока нет URL-маршрутизации по страницам. Если сессия жива,
-            // стартовой страницей авторизованного пользователя должен быть кабинет.
             setCurrentPage(prev => prev === 'landing' ? 'cabinet' : prev);
           }
         } else {
@@ -102,7 +86,6 @@ export default function App() {
         }
       } finally {
         if (!isCancelled) {
-          // Только после полной проверки сессии разрешаем отрисовывать приложение.
           setAuthInitialized(true);
         }
       }
@@ -185,8 +168,22 @@ export default function App() {
       }
 
       const profile = await apiRequest('/profile', 'GET', undefined, token);
-      setUserProfile(profile);
-      console.log('Profile fetched successfully:', profile);
+
+      // organizerId у соревнования хранится как ID пользователя из JWT-сессии.
+      // В старых profile:* записях поле id могло отсутствовать, из-за чего UI
+      // не узнавал собственные соревнования организатора и скрывал действия
+      // «Керувати / Редагувати / Видалити», хотя backend разрешал доступ.
+      // Поэтому идентификатор и email всегда берем из текущей авторизованной
+      // сессии, а остальные данные (роль, имя, телефон и т.д.) — из профиля API.
+      const { data: { session: identitySession } } = await auth.getSession();
+      const normalizedProfile: UserProfile = {
+        ...profile,
+        id: identitySession?.user?.id || profile.id,
+        email: identitySession?.user?.email || profile.email,
+      };
+
+      setUserProfile(normalizedProfile);
+      console.log('Profile fetched successfully:', normalizedProfile);
     } catch (e: any) {
       console.error('Profile fetch error:', e);
       if (e.message && (e.message.includes('401') || e.message.includes('Unauthorized'))) {
@@ -270,9 +267,6 @@ export default function App() {
     setCurrentPage(isLoggedIn ? 'cabinet' : 'landing');
   };
 
-  // Не показываем Header/LandingPage до восстановления сессии после F5.
-  // Фон остается тем же, поэтому пользователь видит короткий нейтральный переход,
-  // а не неверные кнопки входа/выхода.
   if (!authInitialized) {
     return <div className="min-h-screen bg-[#F5F5F7]" />;
   }
