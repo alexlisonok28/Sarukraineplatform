@@ -236,12 +236,31 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const list:any[]=await getData(env,'competitions')||[]; const c=list.find(x=>x.id===register[1]);
       if(!c)return json({error:'Competition not found'},404);
 
-      c.participants=c.participants||[];
+      c.participants=Array.isArray(c.participants) ? c.participants : [];
+
+      const dogId = String(body.dogId || '').trim();
+      const category = String(body.category || '').trim();
+      if(!dogId || !category) return json({error:'Dog and category are required'},400);
+
+      // Уникальность заявки определяется внутри одного соревнования по тройке
+      // userId + dogId + category. Сравнение категории регистронезависимое, чтобы
+      // старые записи вида rh-fl-b не обходили проверку для нового RH-FL-B.
+      // Статус намеренно не учитывается: registered/pending/confirmed/rejected
+      // одинаково считаются уже существующей заявкой.
+      const duplicate = c.participants.some((participant:any) =>
+        String(participant?.userId || '') === String(user.id) &&
+        String(participant?.dogId || '') === dogId &&
+        String(participant?.category || participant?.class || '').trim().toLowerCase() === category.toLowerCase()
+      );
+
+      if(duplicate) {
+        return json({error:'Ця собака вже зареєстрована в обраній категорії'},409);
+      }
 
       // В интерфейсе управления новые заявки ищутся по статусу `registered`.
       // Раньше backend записывал `pending`, из-за чего заявка существовала в БД,
       // но кнопки «Прийняти / Відхилити» вообще не появлялись.
-      const p={...body,id:crypto.randomUUID(),userId:user.id,status:'registered',registeredAt:new Date().toISOString()};
+      const p={...body,dogId,category,id:crypto.randomUUID(),userId:user.id,status:'registered',registeredAt:new Date().toISOString()};
       c.participants.push(p); await setData(env,'competitions',list); return json(p,201);
     }
 
