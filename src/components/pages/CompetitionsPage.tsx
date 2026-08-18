@@ -141,6 +141,21 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
           return;
       }
 
+      // Быстрая клиентская проверка нужна не как единственная защита, а чтобы
+      // пользователь сразу получил понятное сообщение и мы не загружали документы
+      // впустую. Backend ниже всё равно повторно проверяет дубль.
+      const selectedCompetition = competitions.find(c => c.id === selectedCompId);
+      const duplicateExists = (selectedCompetition?.participants || []).some((participant: any) =>
+          String(participant.userId || '') === String(userProfile?.id || '') &&
+          String(participant.dogId || '') === String(selectedDogId) &&
+          String(participant.category || participant.class || '').trim().toLowerCase() === selectedCategory.trim().toLowerCase()
+      );
+
+      if (duplicateExists) {
+          showToast('Ця собака вже зареєстрована в обраній категорії', 'error');
+          return;
+      }
+
       setUploading(true);
       try {
           const uploadedDocs: string[] = [];
