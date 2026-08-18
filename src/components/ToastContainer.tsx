@@ -22,7 +22,10 @@ export default function ToastContainer({ toasts, onRemove }: ToastContainerProps
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-[1000] flex flex-col gap-3 items-end max-w-[calc(100vw-40px)]">
+    <div
+      className="flex flex-col gap-3 items-end"
+      style={{ position: 'fixed', right: 20, bottom: 20, top: 'auto', left: 'auto', zIndex: 1000, maxWidth: 'calc(100vw - 40px)' }}
+    >
       {toasts.map((toast) => {
         const IconComponent = iconComponents[toast.type];
         return (
