@@ -74,15 +74,40 @@ async function sessionFor(env: Env, user: any) {
 
 const requireRole = (user: any, roles: string[]) => user && roles.includes(user.role);
 
-/**
- * Проверяет право на управление КОНКРЕТНЫМ соревнованием.
- * Администратор может управлять любым соревнованием.
- * Организатор — только тем, у которого organizerId совпадает с его user id.
- */
 const canManageCompetition = (user: any, competition: any) => {
   if (!user) return false;
   if (user.role === 'admin') return true;
   return user.role === 'organizer' && String(competition?.organizerId || '') === String(user.id);
+};
+
+/**
+ * Єдина серверна шкала оцінки результату.
+ * Мінімум: пошук 140, послух 70. Навіть при достатній сумі порушення
+ * будь-якого з мінімумів дає «Недостатньо».
+ */
+const normalizeCompetitionResults = (results: any) => {
+  if (!results || (results.search === undefined && results.obedience === undefined)) return results;
+
+  const search = Number(results.search || 0);
+  const obedience = Number(results.obedience || 0);
+  const total = search + obedience;
+  let qualification = 'Не класифіковано';
+
+  if (search < 140 || obedience < 70 || total <= 209.5) qualification = 'Недостатньо';
+  else if (total <= 239.5) qualification = 'Задовільно';
+  else if (total <= 269.5) qualification = 'Добре';
+  else if (total <= 285.5) qualification = 'Дуже добре';
+  else if (total <= 300) qualification = 'Відмінно';
+
+  return {
+    ...results,
+    total,
+    qualification,
+    // Бізнес-правило: «Недостатньо» ніколи не має рейтингового місця.
+    place: qualification === 'Недостатньо' || qualification === 'Не класифіковано'
+      ? undefined
+      : results.place
+  };
 };
 
 function decodeBase64(value: string) {
@@ -192,10 +217,6 @@ export const onRequest = async ({ request, env }: Ctx) => {
       if (path === `/${name}` && method === 'POST') {
         if (!requireRole(user,roles)) return json({error:'Forbidden'},403);
         const list:any[] = await getData(env,name) || [];
-
-        // Для соревнования сервер сам фиксирует создателя.
-        // Нельзя доверять organizerId, присланному из браузера: иначе организатор
-        // мог бы создать соревнование от имени другого пользователя.
         const item = name === 'competitions'
           ? {
               ...body,
@@ -215,10 +236,7 @@ export const onRequest = async ({ request, env }: Ctx) => {
         const list:any[] = await getData(env,name) || [];
         const i=list.findIndex(x=>x.id===match[1]);
         if(i<0) return json({error:'Not found'},404);
-
-        // Организатор может редактировать/удалять только созданное им соревнование.
         if (name === 'competitions' && !canManageCompetition(user,list[i])) return json({error:'Forbidden'},403);
-
         if(method==='DELETE') list.splice(i,1); else list[i]={...list[i],...body,id:list[i].id};
         await setData(env,name,list); return json(method==='DELETE'?{success:true}:list[i]);
       }
@@ -226,8 +244,34 @@ export const onRequest = async ({ request, env }: Ctx) => {
 
     const compResults=path.match(/^\/competitions\/([^/]+)\/results$/);
     if(compResults && method==='GET') {
-      const list:any[]=await getData(env,'competitions')||[]; const c=list.find(x=>x.id===compResults[1]);
-      return c?json(c.results||c.participants||[]):json({error:'Competition not found'},404);
+      const list:any[]=await getData(env,'competitions')||[];
+      const c=list.find(x=>x.id===compResults[1]);
+      if(!c) return json({error:'Competition not found'},404);
+
+      const source:any[] = Array.isArray(c.results) ? c.results : (Array.isArray(c.participants) ? c.participants : []);
+      const participants = await Promise.all(source.map(async (p:any) => {
+        const normalizedResults = normalizeCompetitionResults(p.results);
+        const userRows = p.userId ? await sql`SELECT id,email,name FROM users WHERE id=${p.userId}` : [];
+        const participantUser:any = userRows[0] || {};
+        const profile:any = p.userId ? (await getData(env,`profile:${p.userId}`) || {}) : {};
+        const dogs:any[] = p.userId ? (await getData(env,`dogs:${p.userId}`) || []) : [];
+        const dog:any = dogs.find(d => String(d.id) === String(p.dogId)) || {};
+
+        return {
+          ...p,
+          results: normalizedResults,
+          userName: p.userName || profile.name || participantUser.name || participantUser.email || 'Невідомий учасник',
+          dogName: p.dogName || dog.name || 'Невідома собака',
+          dogBreed: p.dogBreed || dog.breed || '',
+          dogBirth: p.dogBirth || dog.birth || '',
+          category: p.category || p.class || '',
+          class: p.class || p.category || c.level || ''
+        };
+      }));
+
+      // ResultsPage очікує об'єкт з participants. Старі некоректні place при
+      // «Недостатньо» тут уже очищені, тому публічна сторінка їх не покаже.
+      return json({participants});
     }
 
     const register=path.match(/^\/competitions\/([^/]+)\/register$/);
@@ -237,29 +281,18 @@ export const onRequest = async ({ request, env }: Ctx) => {
       if(!c)return json({error:'Competition not found'},404);
 
       c.participants=Array.isArray(c.participants) ? c.participants : [];
-
       const dogId = String(body.dogId || '').trim();
       const category = String(body.category || '').trim();
       if(!dogId || !category) return json({error:'Dog and category are required'},400);
 
-      // Уникальность заявки определяется внутри одного соревнования по тройке
-      // userId + dogId + category. Сравнение категории регистронезависимое, чтобы
-      // старые записи вида rh-fl-b не обходили проверку для нового RH-FL-B.
-      // Статус намеренно не учитывается: registered/pending/confirmed/rejected
-      // одинаково считаются уже существующей заявкой.
       const duplicate = c.participants.some((participant:any) =>
         String(participant?.userId || '') === String(user.id) &&
         String(participant?.dogId || '') === dogId &&
         String(participant?.category || participant?.class || '').trim().toLowerCase() === category.toLowerCase()
       );
 
-      if(duplicate) {
-        return json({error:'Ця собака вже зареєстрована в обраній категорії'},409);
-      }
+      if(duplicate) return json({error:'Ця собака вже зареєстрована в обраній категорії'},409);
 
-      // В интерфейсе управления новые заявки ищутся по статусу `registered`.
-      // Раньше backend записывал `pending`, из-за чего заявка существовала в БД,
-      // но кнопки «Прийняти / Відхилити» вообще не появлялись.
       const p={...body,dogId,category,id:crypto.randomUUID(),userId:user.id,status:'registered',registeredAt:new Date().toISOString()};
       c.participants.push(p); await setData(env,'competitions',list); return json(p,201);
     }
@@ -268,23 +301,26 @@ export const onRequest = async ({ request, env }: Ctx) => {
     if(details) {
       const list:any[]=await getData(env,'competitions')||[]; const c=list.find(x=>x.id===details[1]);
       if(!c)return json({error:'Competition not found'},404);
-
-      // Страница управления содержит персональные данные заявок, поэтому она
-      // доступна только администратору или организатору именно этого соревнования.
       if(!canManageCompetition(user,c)) return json({error:'Forbidden'},403);
 
       if(method==='GET') {
         c.participants = Array.isArray(c.participants) ? c.participants : [];
         let migratedLegacyStatus = false;
 
-        // Заявка хранит только userId и dogId. Для страницы управления этого мало,
-        // поэтому здесь собираем «полную» заявку из users + profile + dogs.
-        // Это позволяет организатору видеть ФИО, данные собаки, категорию и документы.
         const enrichedParticipants = await Promise.all(c.participants.map(async (p:any) => {
           if (p.status === 'pending') {
-            // Поддерживаем уже созданные до исправления заявки.
             p.status = 'registered';
             migratedLegacyStatus = true;
+          }
+
+          // Також нормалізуємо старі збережені результати при відкритті керування.
+          // Це не дозволяє старому place з «Недостатньо» знову з'явитися в UI.
+          if (p.results) {
+            const normalized = normalizeCompetitionResults(p.results);
+            if (JSON.stringify(normalized) !== JSON.stringify(p.results)) {
+              p.results = normalized;
+              migratedLegacyStatus = true;
+            }
           }
 
           const userRows = await sql`SELECT id,email,name FROM users WHERE id=${p.userId}`;
@@ -309,10 +345,7 @@ export const onRequest = async ({ request, env }: Ctx) => {
           };
         }));
 
-        // Старые `pending` сохраняем как `registered`, чтобы после следующего
-        // открытия страницы данные уже были в едином формате.
         if (migratedLegacyStatus) await setData(env,'competitions',list);
-
         return json({...c,participants:enrichedParticipants});
       }
 
@@ -320,7 +353,12 @@ export const onRequest = async ({ request, env }: Ctx) => {
         c.participants=c.participants||[];
         const i=c.participants.findIndex((p:any)=>body.participantId?p.id===body.participantId:p.userId===body.userId&&p.dogId===body.dogId&&p.category===body.category);
         if(i<0)return json({error:'Participant not found'},404);
-        c.participants[i]={...c.participants[i],...body,id:c.participants[i].id,userId:c.participants[i].userId};
+
+        const safeBody = {
+          ...body,
+          results: body.results ? normalizeCompetitionResults(body.results) : body.results
+        };
+        c.participants[i]={...c.participants[i],...safeBody,id:c.participants[i].id,userId:c.participants[i].userId};
         await setData(env,'competitions',list); return json(c.participants[i]);
       }
     }
@@ -341,12 +379,6 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const competitions:any[] = await getData(env,'competitions') || [];
 
       const isPublicDocumentFile = documents.some(document => String(document?.filePath || '') === fileId);
-
-      // Регистрационные документы не являются общей библиотекой документов,
-      // но текущий React-компонент открывает их обычной ссылкой <a>, а браузер
-      // при таком переходе не добавляет JWT из localStorage.
-      // Разрешаем чтение ТОЛЬКО файла, UUID которого действительно записан в
-      // documents одной из заявок. Сам UUID генерируется криптографически случайно.
       const isCompetitionRegistrationFile = competitions.some(competition =>
         (competition?.participants || []).some((participant:any) =>
           Array.isArray(participant?.documents) && participant.documents.some((id:any) => String(id) === fileId)
@@ -363,9 +395,6 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const raw:any=rows[0].content;
       const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
       const safeFileName = String(rows[0].name).replace(/[\r\n"]/g,'');
-
-      // Общие документы скачиваем, а регистрационный документ организатору
-      // удобнее открыть в новой вкладке для проверки.
       const disposition = isCompetitionRegistrationFile && !isPublicDocumentFile ? 'inline' : 'attachment';
 
       return new Response(bytes,{
@@ -385,7 +414,10 @@ export const onRequest = async ({ request, env }: Ctx) => {
       return json({url:`/api/files/${document.filePath}`});
     }
 
-    if(path==='/rating'&&method==='GET') { const comps:any[]=await getData(env,'competitions')||[]; return json(comps.flatMap(c=>c.results||[])); }
+    if(path==='/rating'&&method==='GET') {
+      const comps:any[]=await getData(env,'competitions')||[];
+      return json(comps.flatMap(c=>(c.results||[]).map((r:any)=>({...r,results:normalizeCompetitionResults(r.results)}))));
+    }
     if(path==='/rating/debug'&&method==='GET') return json({competitions:(await getData(env,'competitions')||[]).length});
     if(path==='/admin/users'&&method==='GET') {
       if(!requireRole(user,['admin']))return json({error:'Forbidden'},403);
