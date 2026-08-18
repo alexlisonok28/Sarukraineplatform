@@ -248,7 +248,13 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const c=list.find(x=>x.id===compResults[1]);
       if(!c) return json({error:'Competition not found'},404);
 
-      const source:any[] = Array.isArray(c.results) ? c.results : (Array.isArray(c.participants) ? c.participants : []);
+      // Актуальна модель зберігає заявки та їх результати в participants.
+      // Старе поле results залишаємо лише як fallback для legacy-змагань,
+      // у яких participants взагалі відсутній. Це не дає порожньому/старому
+      // c.results перекривати нові результати, збережені через сторінку керування.
+      const source:any[] = Array.isArray(c.participants)
+        ? c.participants
+        : (Array.isArray(c.results) ? c.results : []);
       const participants = await Promise.all(source.map(async (p:any) => {
         const normalizedResults = normalizeCompetitionResults(p.results);
         const userRows = p.userId ? await sql`SELECT id,email,name FROM users WHERE id=${p.userId}` : [];
