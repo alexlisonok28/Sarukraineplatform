@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Competition } from '../types';
-import { X } from 'lucide-react';
+import { Check, ChevronDown, X } from 'lucide-react';
 import { apiRequest } from '../utils/api';
 import { NativeSelect } from './ui/native-select';
 import { NativeDateInput } from './ui/native-date-input';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 type CompetitionModalProps = {
   isOpen: boolean;
@@ -14,12 +15,19 @@ type CompetitionModalProps = {
 
 const inputClassName = "w-full px-4 py-[14px] bg-white border border-gray-300 rounded-[10px] text-gray-900 transition-all duration-300 focus:outline-none focus:border-[#007AFF] text-base";
 
+const categoryOptions = [
+  { value: 'rh-fl-b', label: 'RH-FL-B' },
+  { value: 'rh-t-b', label: 'RH-T-B' },
+  { value: 'rh-f-b', label: 'RH-F-B' },
+];
+
 export default function CompetitionModal({ isOpen, onClose, onSave, editingComp }: CompetitionModalProps) {
   const [formData, setFormData] = useState({
-    name: '', startDate: '', endDate: '', location: '', level: '', categories: '', description: '', maxParticipants: 20,
+    name: '', startDate: '', endDate: '', location: '', level: '', categories: [] as string[], description: '', maxParticipants: 20,
     organizerName: '', judges: [] as string[], status: 'planned' as string
   });
   const [availableJudges, setAvailableJudges] = useState<any[]>([]);
+  const [categoryError, setCategoryError] = useState(false);
 
   useEffect(() => { fetchJudges(); }, []);
   const fetchJudges = async () => {
@@ -27,23 +35,50 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
   };
 
   useEffect(() => {
+    setCategoryError(false);
     if (editingComp) {
-      setFormData({ name: editingComp.name, startDate: editingComp.startDate || editingComp.date || '', endDate: editingComp.endDate || '', location: editingComp.location, level: editingComp.level, categories: editingComp.categories?.join(', ') || '', description: editingComp.description, maxParticipants: editingComp.maxParticipants, organizerName: editingComp.organizerName || '', judges: editingComp.judges || [], status: editingComp.status || 'planned' });
+      setFormData({
+        name: editingComp.name,
+        startDate: editingComp.startDate || editingComp.date || '',
+        endDate: editingComp.endDate || '',
+        location: editingComp.location,
+        level: editingComp.level,
+        categories: editingComp.categories || [],
+        description: editingComp.description,
+        maxParticipants: editingComp.maxParticipants,
+        organizerName: editingComp.organizerName || '',
+        judges: editingComp.judges || [],
+        status: editingComp.status || 'planned'
+      });
     } else {
-      setFormData({ name: '', startDate: '', endDate: '', location: '', level: '', categories: '', description: '', maxParticipants: 20, organizerName: '', judges: [], status: 'planned' });
+      setFormData({ name: '', startDate: '', endDate: '', location: '', level: '', categories: [], description: '', maxParticipants: 20, organizerName: '', judges: [], status: 'planned' });
     }
   }, [editingComp, isOpen]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const categoriesArray = formData.categories.split(',').map(s => s.trim().toLowerCase().replace(/v/g, 'b')).filter(Boolean);
-    onSave({ ...formData, categories: categoriesArray, date: formData.startDate });
+    if (formData.categories.length === 0) {
+      setCategoryError(true);
+      return;
+    }
+    onSave({ ...formData, categories: formData.categories, date: formData.startDate });
   };
 
   const handleJudgeChange = (judgeName: string) => {
     const current = formData.judges;
     setFormData({ ...formData, judges: current.includes(judgeName) ? current.filter(j => j !== judgeName) : [...current, judgeName] });
   };
+
+  const toggleCategory = (category: string) => {
+    const current = formData.categories;
+    const categories = current.includes(category) ? current.filter(item => item !== category) : [...current, category];
+    setFormData({ ...formData, categories });
+    if (categories.length > 0) setCategoryError(false);
+  };
+
+  const selectedCategoryLabels = categoryOptions
+    .filter(option => formData.categories.includes(option.value))
+    .map(option => option.label);
 
   if (!isOpen) return null;
 
@@ -79,7 +114,42 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
                 <option value="Відбіркові CACIT">Відбіркові CACIT</option>
               </NativeSelect>
             </div>
-            <div><label className="block text-base text-gray-900 mb-2 font-medium">Категорії (через кому)</label><input type="text" className={inputClassName} value={formData.categories} onChange={(e) => setFormData({ ...formData, categories: e.target.value })} placeholder="rh-fl-b, rh-t-b, rh-f-b" required /></div>
+            <div>
+              <label className="block text-base text-gray-900 mb-2 font-medium">Категорії</label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-invalid={categoryError}
+                    className={`w-full h-11 px-4 bg-white border rounded-[10px] text-base text-left flex items-center justify-between gap-3 transition-all duration-300 focus:outline-none focus:border-[#007AFF] ${categoryError ? 'border-red-500' : 'border-gray-300'}`}
+                  >
+                    <span className={selectedCategoryLabels.length ? 'text-gray-900 truncate' : 'text-gray-500 truncate'}>
+                      {selectedCategoryLabels.length ? selectedCategoryLabels.join(', ') : 'Оберіть категорії'}
+                    </span>
+                    <ChevronDown className="w-5 h-5 text-gray-500 shrink-0" aria-hidden="true" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-1 bg-white border border-gray-200 rounded-[10px] shadow-lg z-[300]">
+                  {categoryOptions.map(option => {
+                    const selected = formData.categories.includes(option.value);
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => toggleCategory(option.value)}
+                        className="w-full min-h-10 px-3 py-2 flex items-center gap-3 rounded-md text-left text-gray-900 hover:bg-gray-100 transition-colors"
+                      >
+                        <span className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${selected ? 'bg-[#007AFF] border-[#007AFF] text-white' : 'border-gray-300 bg-white'}`}>
+                          {selected && <Check className="w-4 h-4" aria-hidden="true" />}
+                        </span>
+                        <span>{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </PopoverContent>
+              </Popover>
+              {categoryError && <p className="mt-1.5 text-sm text-red-600">Оберіть щонайменше одну категорію</p>}
+            </div>
           </div>
           <div className="mb-5"><label className="block text-base text-gray-900 mb-2 font-medium">Макс. учасників</label><input type="number" className={inputClassName} value={formData.maxParticipants} onChange={(e) => setFormData({ ...formData, maxParticipants: parseInt(e.target.value) })} required /></div>
           <div className="mb-5">
