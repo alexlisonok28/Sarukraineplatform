@@ -54,11 +54,19 @@ type ExtendedParticipant = {
         place?: number;
         qualification?: string;
         notes?: string;
+        title?: string;
     };
     category?: string; // Assigned category
     class?: string; // Assigned class (level)
     documents?: string[];
 };
+
+const TITLE_COMPETITION_LEVELS = new Set([
+    'Відбіркові CACT',
+    'CACT',
+    'Відбіркові CACIT',
+    'CACIT',
+]);
 
 const DocumentLink = ({ path }: { path: string }) => {
     const [url, setUrl] = useState<string | null>(null);
@@ -263,6 +271,24 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
         }));
     };
 
+    const handleTitleChange = (participantId: string | undefined, userId: string, dogId: string, category: string | undefined, value: string) => {
+        setParticipants(prev => prev.map(p => {
+            const isMatch = participantId
+                ? p.id === participantId
+                : (p.userId === userId && p.dogId === dogId && (category ? p.category === category : true));
+
+            if (!isMatch) return p;
+
+            return {
+                ...p,
+                results: {
+                    ...(p.results || {}),
+                    title: value,
+                },
+            };
+        }));
+    };
+
     const handleCategoryChange = (userId: string, dogId: string, category: string) => {
          setParticipants(prev => prev.map(p => 
             (p.userId === userId && p.dogId === dogId) ? { ...p, category } : p
@@ -389,6 +415,7 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
                             new TableCell({ children: [new Paragraph('Послух')] }),
                             new TableCell({ children: [new Paragraph('Бали')] }),
                             new TableCell({ children: [new Paragraph('Оцінка')] }),
+                            ...(showTitleColumn ? [new TableCell({ children: [new Paragraph('Титул')] })] : []),
                         ],
                     }),
                 ];
@@ -406,6 +433,7 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
                     const obedience = p.results?.obedience ? p.results.obedience.toFixed(1) : '-';
                     const total = p.results?.total ? p.results.total.toFixed(1) : '-';
                     const qual = p.results?.qualification || '-';
+                    const title = p.results?.title?.trim() || '-';
                     tableRows.push(
                         new TableRow({
                             children: [
@@ -420,6 +448,7 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
                                 new TableCell({ children: [new Paragraph(obedience)] }),
                                 new TableCell({ children: [new Paragraph(total)] }),
                                 new TableCell({ children: [new Paragraph(qual)] }),
+                                ...(showTitleColumn ? [new TableCell({ children: [new Paragraph(title)] })] : []),
                             ],
                         })
                     );
@@ -471,6 +500,7 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
         return <div className="text-center bg-[#F5F5F7] text-gray-900 pt-20">Доступ заборонений</div>;
     }
 
+    const showTitleColumn = TITLE_COMPETITION_LEVELS.has(competition.level);
     const groups: Record<string, ExtendedParticipant[]> = {};
     const pendingParticipants = participants.filter(p => p.status === 'registered');
 
@@ -565,12 +595,13 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
                                                 <div><div className="text-gray-500 text-sm mb-1">Учасник</div><div className="font-medium text-gray-900 text-base">{p.userName}</div></div>
                                                 <div><div className="text-gray-500 text-sm mb-1">Собака</div><div className="text-gray-900 text-base">{p.dogName}</div><div className="text-sm text-gray-500">{p.dogBreed}</div>{p.dogBirth && <div className="text-sm text-gray-400">{new Date(p.dogBirth).getFullYear()}</div>}</div>
                                                 <div className="grid grid-cols-2 gap-3"><div><label className="text-gray-500 text-sm mb-1 block">Пошук</label><Input type="number" className="bg-white border-gray-300 text-center text-gray-900 h-10 text-base" value={p.results?.search ?? ''} onChange={(e) => handleResultChange(p.userId, p.dogId, 'search', e.target.value, p.category, p.id)} /></div><div><label className="text-gray-500 text-sm mb-1 block">Послух</label><Input type="number" className="bg-white border-gray-300 text-center text-gray-900 h-10 text-base" value={p.results?.obedience ?? ''} onChange={(e) => handleResultChange(p.userId, p.dogId, 'obedience', e.target.value, p.category, p.id)} /></div></div>
+                                                {showTitleColumn && <div><label className="text-gray-500 text-sm mb-1 block">Титул</label><Input type="text" className="bg-white border-gray-300 text-gray-900 h-10 text-base" value={p.results?.title ?? ''} onChange={(e) => handleTitleChange(p.id, p.userId, p.dogId, p.category, e.target.value)} placeholder="Вкажіть титул" /></div>}
                                                 <div className="pt-2 border-t border-gray-200"><div className="flex justify-between items-center mb-2"><span className="text-gray-600 text-base">Загальний бал:</span><span className="font-semibold text-[#007AFF] text-xl">{p.results?.total ?? '-'}</span></div><div className="flex justify-between items-center mb-2"><span className="text-gray-600 text-base">Оцінка:</span><Badge variant="outline" className={`text-sm py-1 font-normal ${p.results?.qualification === 'Відмінно' ? 'border-green-500 text-green-600' : p.results?.qualification === 'Дуже добре' ? 'border-blue-500 text-blue-600' : p.results?.qualification === 'Добре' ? 'border-cyan-500 text-cyan-600' : p.results?.qualification === 'Задовільно' ? 'border-yellow-500 text-yellow-600' : p.results?.qualification === 'Недостатньо' ? 'border-red-500 text-red-600' : 'border-gray-400 text-gray-500'}`}>{p.results?.qualification || '—'}</Badge></div></div>
                                             </div>
                                         ))}
                                     </div>
                                     <div className="hidden md:block overflow-x-auto">
-                                        <table className="w-full border-collapse"><thead><tr className="bg-gray-50"><th className="p-4 text-left text-gray-900 text-base font-semibold">#</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Учасник</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Собака</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Пошук</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Послух</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Заг. бал</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Оцінка</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Статус</th></tr></thead><tbody>
+                                        <table className="w-full border-collapse"><thead><tr className="bg-gray-50"><th className="p-4 text-left text-gray-900 text-base font-semibold">#</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Учасник</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Собака</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Пошук</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Послух</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Заг. бал</th><th className="p-4 text-left text-gray-900 text-base font-semibold">Оцінка</th>{showTitleColumn && <th className="p-4 text-left text-gray-900 text-base font-semibold">Титул</th>}<th className="p-4 text-left text-gray-900 text-base font-semibold">Статус</th></tr></thead><tbody>
                                             {groupParticipants.map((p, idx) => (
                                                 <tr key={p.id || `${p.userId}-${p.dogId}-${idx}`} className="border-t border-gray-200 hover:bg-gray-50">
                                                     <td className="p-4 text-gray-700">{p.results?.qualification !== 'Недостатньо' && p.results?.place ? <div className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold ${p.results.place === 1 ? 'bg-yellow-100 text-yellow-700' : p.results.place === 2 ? 'bg-gray-200 text-gray-700' : p.results.place === 3 ? 'bg-orange-100 text-orange-700' : 'text-gray-600'}`}>{p.results.place}</div> : '-'}</td>
@@ -579,6 +610,7 @@ export default function ManageCompetitionPage({ competitionId, onBack, showToast
                                                     <td className="p-4 text-gray-700"><Input type="number" className="bg-white border-gray-300 text-center text-gray-900 h-10 text-base w-24" value={p.results?.obedience ?? ''} onChange={(e) => handleResultChange(p.userId, p.dogId, 'obedience', e.target.value, p.category, p.id)} /></td>
                                                     <td className="p-4 text-gray-900 text-base font-semibold">{p.results?.total ?? '-'}</td>
                                                     <td className="p-4 text-gray-700"><Badge variant="outline" className={`text-sm py-1 font-normal ${p.results?.qualification === 'Відмінно' ? 'border-green-500 text-green-600' : p.results?.qualification === 'Дуже добре' ? 'border-blue-500 text-blue-600' : p.results?.qualification === 'Добре' ? 'border-cyan-500 text-cyan-600' : p.results?.qualification === 'Задовільно' ? 'border-yellow-500 text-yellow-600' : p.results?.qualification === 'Недостатньо' ? 'border-red-500 text-red-600' : 'border-gray-400 text-gray-500'}`}>{p.results?.qualification || '—'}</Badge></td>
+                                                    {showTitleColumn && <td className="p-4 text-gray-700"><Input type="text" className="bg-white border-gray-300 text-gray-900 h-10 text-base min-w-[150px]" value={p.results?.title ?? ''} onChange={(e) => handleTitleChange(p.id, p.userId, p.dogId, p.category, e.target.value)} placeholder="Вкажіть титул" /></td>}
                                                     <td className="p-4 text-gray-700"><span className={`inline-block px-2 py-1 rounded text-sm ${p.status === 'confirmed' ? 'text-green-600 bg-green-50' : 'text-gray-500'}`}>{p.status === 'confirmed' ? 'ОК' : '...'}</span></td>
                                                 </tr>
                                             ))}

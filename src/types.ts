@@ -72,10 +72,14 @@ export type Competition = {
 
     // Результат появляется после проведения соревнования.
     results?: {
+      search?: number;
+      obedience?: number;
+      total?: number;
       place?: number;
       score?: number;
       qualification?: string;
       notes?: string;
+      title?: string;
     };
   }[];
 
