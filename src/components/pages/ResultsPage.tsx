@@ -46,27 +46,19 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
 
     const loadCompletedCompetitions = async () => {
         try {
-            console.log('Loading competitions...');
             const data = await apiRequest('/competitions');
-            console.log('All competitions:', data);
-            
-            // Load participants for each competition (show all competitions, not just past ones)
+
+            // У публічному розділі «Результати» показуємо тільки ті події,
+            // які організатор/адміністратор явно перевів у статус «Завершені».
+            const completedCompetitions = data.filter((comp: Competition) => comp.status === 'completed');
+
             const competitionsWithParticipants = await Promise.all(
-                data.map(async (comp: Competition) => {
+                completedCompetitions.map(async (comp: Competition) => {
                     try {
-                        console.log(`Fetching results for competition ${comp.id}:`, comp.name);
                         const details = await apiRequest(`/competitions/${comp.id}/results`);
-                        console.log(`Participants for ${comp.name}:`, details.participants);
-                        
-                        // Log first participant to see structure
-                        if (details.participants && details.participants.length > 0) {
-                            console.log('First participant structure:', details.participants[0]);
-                        }
-                        
                         return { ...comp, participants: details.participants || [] };
                     } catch (e) {
                         console.error(`Failed to load participants for ${comp.id}:`, e);
-                        console.error('Error details:', e instanceof Error ? e.message : String(e));
                         return { ...comp, participants: [] };
                     }
                 })
@@ -75,7 +67,6 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
             setCompetitions(competitionsWithParticipants);
         } catch (e) {
             console.error('Failed to load competitions:', e);
-            console.error('Error details:', e instanceof Error ? e.message : String(e));
             showToast('Помилка завантаження результатів', 'error');
         } finally {
             setLoading(false);
@@ -112,26 +103,19 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                 <div className="space-y-6">
                     {competitions.map((competition) => {
                         const isExpanded = expandedCompetition === competition.id;
-                        
-                        // Get all confirmed participants
                         const confirmedParticipants = competition.participants?.filter(p => p.status === 'confirmed') || [];
-                        
-                        // Group participants by category and class
                         const groupsWithResults: Record<string, ExtendedParticipant[]> = {};
                         const groupsWithoutResults: Record<string, ExtendedParticipant[]> = {};
                         
                         confirmedParticipants.forEach(p => {
                             const key = p.class || 'Без класу';
                             
-                            // Recalculate qualification with minimum thresholds
                             if (p.results && (p.results.search !== undefined || p.results.obedience !== undefined)) {
                                 const search = p.results.search || 0;
                                 const obedience = p.results.obedience || 0;
                                 const total = search + obedience;
-                                
                                 let qualification = 'Не класифіковано';
                                 
-                                // Check minimum requirements: search >= 140 AND obedience >= 70
                                 if (search < 140 || obedience < 70) {
                                     qualification = 'Недостатньо';
                                 } else if (total >= 0 && total <= 209.5) {
@@ -146,7 +130,6 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                     qualification = 'Відмінно';
                                 }
                                 
-                                // Update results with recalculated values
                                 p.results = {
                                     ...p.results,
                                     total,
@@ -155,17 +138,14 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                             }
                             
                             if (p.results && (p.results.search || p.results.obedience || p.results.total || p.results.place)) {
-                                // Has results (any score or place)
                                 if (!groupsWithResults[key]) groupsWithResults[key] = [];
                                 groupsWithResults[key].push(p);
                             } else {
-                                // No results yet - just participants list
                                 if (!groupsWithoutResults[key]) groupsWithoutResults[key] = [];
                                 groupsWithoutResults[key].push(p);
                             }
                         });
 
-                        // Sort participants by place within each group
                         Object.keys(groupsWithResults).forEach(groupName => {
                             groupsWithResults[groupName].sort((a, b) => (a.results?.place || 999) - (b.results?.place || 999));
                         });
@@ -173,6 +153,7 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                         const hasResults = Object.keys(groupsWithResults).length > 0;
                         const hasParticipants = Object.keys(groupsWithoutResults).length > 0;
                         const hasAnyData = hasResults || hasParticipants;
+                        const competitionDate = competition.startDate || competition.date;
 
                         return (
                             <Card 
@@ -192,7 +173,7 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm sm:text-base text-gray-600 ml-7 sm:ml-8 pt-[0px] pr-[0px] pb-[8px] pl-[0px]">
                                                 <div className="flex items-center gap-2">
                                                     <Calendar className="w-4 h-4" />
-                                                    {new Date(competition.date).toLocaleDateString('uk-UA')}
+                                                    {competitionDate ? new Date(competitionDate).toLocaleDateString('uk-UA') : 'Дата не визначена'}
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <MapPin className="w-4 h-4" />
@@ -230,7 +211,6 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                 {isExpanded && hasAnyData && (
                                     <CardContent className="pt-0">
                                         <div className="space-y-8">
-                                            {/* Groups WITH results (with places and scores) */}
                                             {Object.keys(groupsWithResults).map(groupName => {
                                                 const groupParticipants = groupsWithResults[groupName];
                                                 
@@ -240,7 +220,6 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                                             {groupName}
                                                         </h3>
 
-                                                        {/* Mobile: Cards */}
                                                         <div className="md:hidden space-y-3">
                                                             {groupParticipants.map((p, idx) => (
                                                                 <div 
@@ -249,7 +228,7 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                                                 >
                                                                     <div className="flex items-start gap-3 mb-3">
                                                                         <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-700 font-medium">
-                                                                            {p.results?.place}
+                                                                            {p.results?.place || '—'}
                                                                         </div>
                                                                         <div className="flex-1 min-w-0">
                                                                             <div className="text-gray-900 font-medium text-base truncate">{p.userName}</div>
@@ -292,7 +271,6 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                                             ))}
                                                         </div>
 
-                                                        {/* Desktop: Table */}
                                                         <div className="hidden md:block overflow-x-auto">
                                                             <table className="w-full border-collapse">
                                                                 <thead>
@@ -314,7 +292,7 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                                                         >
                                                                             <td className="p-3">
                                                                                 <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-100 text-gray-700 font-medium">
-                                                                                    {p.results?.place}
+                                                                                    {p.results?.place || '—'}
                                                                                 </div>
                                                                             </td>
                                                                             <td className="p-3 text-gray-900">{p.userName}</td>
@@ -346,7 +324,6 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                                 );
                                             })}
 
-                                            {/* Groups WITHOUT results (just participants list) */}
                                             {Object.keys(groupsWithoutResults).map(groupName => {
                                                 const groupParticipants = groupsWithoutResults[groupName];
                                                 
@@ -356,7 +333,6 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                                             {groupName}
                                                         </h3>
 
-                                                        {/* Mobile: Cards */}
                                                         <div className="md:hidden space-y-3">
                                                             {groupParticipants.map((p, idx) => (
                                                                 <div 
@@ -377,7 +353,6 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                                             ))}
                                                         </div>
 
-                                                        {/* Desktop: Table */}
                                                         <div className="hidden md:block overflow-x-auto">
                                                             <table className="w-full border-collapse">
                                                                 <thead>
