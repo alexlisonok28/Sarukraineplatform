@@ -57,7 +57,9 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
   const fetchCompetitions = async () => {
     try {
       const data = await apiRequest('/competitions');
-      setCompetitions(data);
+      // Розділ «Змагання» містить тільки актуальні/майбутні події.
+      // Завершені змагання залишаються в API, але показуються лише в «Результати».
+      setCompetitions(data.filter((comp: Competition) => comp.status !== 'completed'));
     } catch (e) {
       console.error(e);
     }
@@ -67,11 +69,16 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
     try {
       if (selectedCompForEdit) {
          const updatedComp = await apiRequest(`/competitions/${selectedCompForEdit.id}`, 'PUT', data);
-         setCompetitions(competitions.map(c => c.id === updatedComp.id ? updatedComp : c));
+         setCompetitions(current => {
+             const updated = current.map(c => c.id === updatedComp.id ? updatedComp : c);
+             return updated.filter(c => c.status !== 'completed');
+         });
          showToast('Змагання оновлено!', 'success');
       } else {
          const newComp = await apiRequest('/competitions', 'POST', data);
-         setCompetitions([...competitions, newComp]);
+         if (newComp.status !== 'completed') {
+             setCompetitions(current => [...current, newComp]);
+         }
          showToast('Змагання створено!', 'success');
       }
       setIsModalOpen(false);
@@ -103,7 +110,16 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
   const handleStatusChange = async (compId: string, newStatus: string) => {
       try {
           await apiRequest(`/competitions/${compId}`, 'PUT', { status: newStatus });
-          setCompetitions(competitions.map(c => c.id === compId ? { ...c, status: newStatus } : c));
+
+          // Після встановлення статусу «Завершені» картка одразу зникає з цього
+          // розділу без перезавантаження сторінки. Дані не видаляються — вони
+          // залишаються доступними в «Результати».
+          if (newStatus === 'completed') {
+              setCompetitions(current => current.filter(c => c.id !== compId));
+          } else {
+              setCompetitions(current => current.map(c => c.id === compId ? { ...c, status: newStatus } : c));
+          }
+
           showToast('Статус оновлено', 'success');
       } catch (e) {
           showToast('Помилка зміни статусу', 'error');
