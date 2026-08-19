@@ -22,6 +22,7 @@ type ExtendedParticipant = {
         place?: number;
         qualification?: string;
         notes?: string;
+        title?: string;
     };
     category?: string;
     class?: string;
@@ -35,6 +36,164 @@ type ResultsPageProps = {
     showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 };
 
+type ResultStructure = 'search-obedience' | 'basic';
+
+const TITLE_COMPETITION_LEVELS = new Set([
+    'Відбіркові CACT',
+    'CACT',
+    'Відбіркові CACIT',
+    'CACIT',
+]);
+
+/**
+ * Структура таблиці визначається нормативом, а не наявністю внесених балів.
+ * Поточні RH-FL / RH-T / RH-F категорії використовують однакову модель:
+ * пошук + послух + загальний бал + оцінка.
+ */
+const getResultStructure = (category: string): ResultStructure => {
+    return /^RH-(FL|T|F)-/i.test(category) ? 'search-obedience' : 'basic';
+};
+
+const qualificationBadgeClass = (qualification?: string) => {
+    if (qualification === 'Відмінно') return 'border-green-600 text-green-700 bg-green-50';
+    if (qualification === 'Дуже добре') return 'border-blue-600 text-blue-700 bg-blue-50';
+    if (qualification === 'Добре') return 'border-cyan-600 text-cyan-700 bg-cyan-50';
+    if (qualification === 'Задовільно') return 'border-yellow-600 text-yellow-700 bg-yellow-50';
+    if (qualification === 'Недостатньо') return 'border-red-600 text-red-700 bg-red-50';
+    return 'border-gray-300 text-gray-600 bg-gray-50';
+};
+
+const displayNumber = (value?: number) => value === undefined || value === null ? '—' : value.toFixed(1);
+
+function ResultsGroup({
+    groupName,
+    participants,
+    showTitle,
+}: {
+    groupName: string;
+    participants: ExtendedParticipant[];
+    showTitle: boolean;
+}) {
+    const structure = getResultStructure(groupName);
+    const showScores = structure === 'search-obedience';
+
+    return (
+        <div>
+            <h3 className="text-lg sm:text-xl text-gray-900 mb-4 pb-2 border-b border-gray-200">
+                {groupName}
+            </h3>
+
+            <div className="md:hidden space-y-3">
+                {participants.map((p, idx) => (
+                    <div
+                        key={p.id || `${p.userId}-${p.dogId}-${idx}`}
+                        className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm"
+                    >
+                        <div className="flex items-start gap-3 mb-3">
+                            <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-700 font-medium">
+                                {p.results?.place ?? '—'}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-gray-900 font-medium text-base truncate">{p.userName}</div>
+                                <div className="text-gray-600 text-sm truncate">{p.dogName}</div>
+                                {p.dogBreed && <div className="text-gray-500 text-xs">{p.dogBreed}</div>}
+                            </div>
+                        </div>
+
+                        {showScores && (
+                            <>
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                    <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+                                        <div className="text-gray-600 text-xs mb-1">Пошук</div>
+                                        <div className="text-gray-900 font-medium">{displayNumber(p.results?.search)}</div>
+                                    </div>
+                                    <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+                                        <div className="text-gray-600 text-xs mb-1">Послух</div>
+                                        <div className="text-gray-900 font-medium">{displayNumber(p.results?.obedience)}</div>
+                                    </div>
+                                </div>
+
+                                <div className="pt-3 border-t border-gray-200 space-y-2">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-gray-600 text-sm">Загальний бал:</span>
+                                        <span className="text-[#007AFF] font-bold text-lg">{displayNumber(p.results?.total)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-gray-600 text-sm">Оцінка:</span>
+                                        <Badge variant="outline" className={`text-xs py-0.5 font-normal ${qualificationBadgeClass(p.results?.qualification)}`}>
+                                            {p.results?.qualification || '—'}
+                                        </Badge>
+                                    </div>
+                                    {showTitle && (
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-gray-600 text-sm">Титул:</span>
+                                            <span className="text-gray-900 text-sm font-medium">{p.results?.title?.trim() || '—'}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+
+                        {!showScores && showTitle && (
+                            <div className="pt-3 border-t border-gray-200 flex justify-between items-center">
+                                <span className="text-gray-600 text-sm">Титул:</span>
+                                <span className="text-gray-900 text-sm font-medium">{p.results?.title?.trim() || '—'}</span>
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto">
+                <table className="w-full border-collapse table-fixed">
+                    <thead>
+                        <tr className="bg-gray-50">
+                            <th className="p-3 text-left text-gray-900 w-[72px]">#</th>
+                            <th className="p-3 text-left text-gray-900">Учасник</th>
+                            <th className="p-3 text-left text-gray-900">Собака</th>
+                            {showScores && <th className="p-3 text-center text-gray-900 w-[110px]">Пошук</th>}
+                            {showScores && <th className="p-3 text-center text-gray-900 w-[110px]">Послух</th>}
+                            {showScores && <th className="p-3 text-center text-gray-900 w-[120px]">Заг. бал</th>}
+                            {showScores && <th className="p-3 text-left text-gray-900 w-[150px]">Оцінка</th>}
+                            {showTitle && <th className="p-3 text-left text-gray-900 w-[140px]">Титул</th>}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {participants.map((p, idx) => (
+                            <tr
+                                key={p.id || `${p.userId}-${p.dogId}-${idx}`}
+                                className="border-t border-gray-200 hover:bg-gray-50"
+                            >
+                                <td className="p-3">
+                                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-100 text-gray-700 font-medium">
+                                        {p.results?.place ?? '—'}
+                                    </div>
+                                </td>
+                                <td className="p-3 text-gray-900 break-words">{p.userName}</td>
+                                <td className="p-3 break-words">
+                                    <div className="text-gray-900">{p.dogName}</div>
+                                    {p.dogBreed && <div className="text-sm text-gray-600">{p.dogBreed}</div>}
+                                </td>
+                                {showScores && <td className="p-3 text-center text-gray-700">{displayNumber(p.results?.search)}</td>}
+                                {showScores && <td className="p-3 text-center text-gray-700">{displayNumber(p.results?.obedience)}</td>}
+                                {showScores && <td className="p-3 text-center text-[#007AFF] font-bold">{displayNumber(p.results?.total)}</td>}
+                                {showScores && (
+                                    <td className="p-3">
+                                        <Badge variant="outline" className={`text-sm py-1 font-normal ${qualificationBadgeClass(p.results?.qualification)}`}>
+                                            {p.results?.qualification || '—'}
+                                        </Badge>
+                                    </td>
+                                )}
+                                {showTitle && <td className="p-3 text-gray-900 break-words">{p.results?.title?.trim() || '—'}</td>}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
 export default function ResultsPage({ showToast }: ResultsPageProps) {
     const [competitions, setCompetitions] = useState<CompetitionWithResults[]>([]);
     const [loading, setLoading] = useState(true);
@@ -47,9 +206,6 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
     const loadCompletedCompetitions = async () => {
         try {
             const data = await apiRequest('/competitions');
-
-            // У публічному розділі «Результати» показуємо тільки ті події,
-            // які організатор/адміністратор явно перевів у статус «Завершені».
             const completedCompetitions = data.filter((comp: Competition) => comp.status === 'completed');
 
             const competitionsWithParticipants = await Promise.all(
@@ -88,9 +244,7 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
     return (
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 sm:py-[60px]">
             <div className="mb-8 sm:mb-12 text-left">
-                <h1 className="text-4xl md:text-[48px] mb-2 text-gray-900 font-semibold">
-                    Результати
-                </h1>
+                <h1 className="text-4xl md:text-[48px] mb-2 text-gray-900 font-semibold">Результати</h1>
                 <p className="text-base sm:text-lg text-gray-600">Результати минулих змагань</p>
             </div>
 
@@ -104,73 +258,38 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                     {competitions.map((competition) => {
                         const isExpanded = expandedCompetition === competition.id;
                         const confirmedParticipants = competition.participants?.filter(p => p.status === 'confirmed') || [];
-                        const groupsWithResults: Record<string, ExtendedParticipant[]> = {};
-                        const groupsWithoutResults: Record<string, ExtendedParticipant[]> = {};
-                        
+                        const groups: Record<string, ExtendedParticipant[]> = {};
+
                         confirmedParticipants.forEach(p => {
-                            const key = p.class || 'Без класу';
-                            
-                            if (p.results && (p.results.search !== undefined || p.results.obedience !== undefined)) {
-                                const search = p.results.search || 0;
-                                const obedience = p.results.obedience || 0;
-                                const total = search + obedience;
-                                let qualification = 'Не класифіковано';
-                                
-                                if (search < 140 || obedience < 70) {
-                                    qualification = 'Недостатньо';
-                                } else if (total >= 0 && total <= 209.5) {
-                                    qualification = 'Недостатньо';
-                                } else if (total >= 210 && total <= 239.5) {
-                                    qualification = 'Задовільно';
-                                } else if (total >= 240 && total <= 269.5) {
-                                    qualification = 'Добре';
-                                } else if (total >= 270 && total <= 285.5) {
-                                    qualification = 'Дуже добре';
-                                } else if (total >= 286 && total <= 300) {
-                                    qualification = 'Відмінно';
-                                }
-                                
-                                p.results = {
-                                    ...p.results,
-                                    total,
-                                    qualification
-                                };
-                            }
-                            
-                            if (p.results && (p.results.search || p.results.obedience || p.results.total || p.results.place)) {
-                                if (!groupsWithResults[key]) groupsWithResults[key] = [];
-                                groupsWithResults[key].push(p);
-                            } else {
-                                if (!groupsWithoutResults[key]) groupsWithoutResults[key] = [];
-                                groupsWithoutResults[key].push(p);
-                            }
+                            const key = p.class || p.category || 'Без класу';
+                            if (!groups[key]) groups[key] = [];
+                            groups[key].push(p);
                         });
 
-                        Object.keys(groupsWithResults).forEach(groupName => {
-                            groupsWithResults[groupName].sort((a, b) => (a.results?.place || 999) - (b.results?.place || 999));
+                        Object.values(groups).forEach(groupParticipants => {
+                            groupParticipants.sort((a, b) => (a.results?.place ?? 999) - (b.results?.place ?? 999));
                         });
 
-                        const hasResults = Object.keys(groupsWithResults).length > 0;
-                        const hasParticipants = Object.keys(groupsWithoutResults).length > 0;
-                        const hasAnyData = hasResults || hasParticipants;
+                        const hasParticipants = Object.keys(groups).length > 0;
                         const competitionDate = competition.startDate || competition.date;
+                        const showTitle = TITLE_COMPETITION_LEVELS.has(competition.level);
 
                         return (
-                            <Card 
-                                key={competition.id} 
+                            <Card
+                                key={competition.id}
                                 className="bg-white shadow-sm hover:shadow-lg transition-shadow overflow-hidden"
                             >
-                                <CardHeader 
-                                    className={`${hasAnyData ? 'cursor-pointer hover:bg-gray-50 transition-colors' : ''}`}
-                                    onClick={() => hasAnyData && toggleExpand(competition.id)}
+                                <CardHeader
+                                    className={`${hasParticipants ? 'cursor-pointer hover:bg-gray-50 transition-colors' : ''}`}
+                                    onClick={() => hasParticipants && toggleExpand(competition.id)}
                                 >
                                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                                         <div className="flex-1">
                                             <CardTitle className="text-xl sm:text-2xl text-gray-900 mb-2 flex items-start gap-2">
                                                 <Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-[#007AFF] flex-shrink-0 mt-1" />
-                                                <span className="pt-[0px] pr-[0px] pb-[4px] pl-[0px] font-semibold">{competition.name}</span>
+                                                <span className="pb-1 font-semibold">{competition.name}</span>
                                             </CardTitle>
-                                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm sm:text-base text-gray-600 ml-7 sm:ml-8 pt-[0px] pr-[0px] pb-[8px] pl-[0px]">
+                                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm sm:text-base text-gray-600 ml-7 sm:ml-8 pb-2">
                                                 <div className="flex items-center gap-2">
                                                     <Calendar className="w-4 h-4" />
                                                     {competitionDate ? new Date(competitionDate).toLocaleDateString('uk-UA') : 'Дата не визначена'}
@@ -181,7 +300,8 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                                 </div>
                                             </div>
                                         </div>
-                                        {hasAnyData && (
+
+                                        {hasParticipants ? (
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
@@ -195,12 +315,11 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                                 ) : (
                                                     <>
                                                         <ChevronDown className="w-4 h-4 mr-2" />
-                                                        {hasResults ? 'Переглянути результати' : 'Переглянути учасників'}
+                                                        Переглянути результати
                                                     </>
                                                 )}
                                             </Button>
-                                        )}
-                                        {!hasAnyData && (
+                                        ) : (
                                             <Badge variant="outline" className="border-gray-300 text-gray-600 self-start sm:self-center">
                                                 Немає учасників
                                             </Badge>
@@ -208,184 +327,17 @@ export default function ResultsPage({ showToast }: ResultsPageProps) {
                                     </div>
                                 </CardHeader>
 
-                                {isExpanded && hasAnyData && (
+                                {isExpanded && hasParticipants && (
                                     <CardContent className="pt-0">
                                         <div className="space-y-8">
-                                            {Object.keys(groupsWithResults).map(groupName => {
-                                                const groupParticipants = groupsWithResults[groupName];
-                                                
-                                                return (
-                                                    <div key={groupName}>
-                                                        <h3 className="text-lg sm:text-xl text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                                                            {groupName}
-                                                        </h3>
-
-                                                        <div className="md:hidden space-y-3">
-                                                            {groupParticipants.map((p, idx) => (
-                                                                <div 
-                                                                    key={p.id || `${p.userId}-${p.dogId}-${idx}`}
-                                                                    className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm"
-                                                                >
-                                                                    <div className="flex items-start gap-3 mb-3">
-                                                                        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-700 font-medium">
-                                                                            {p.results?.place || '—'}
-                                                                        </div>
-                                                                        <div className="flex-1 min-w-0">
-                                                                            <div className="text-gray-900 font-medium text-base truncate">{p.userName}</div>
-                                                                            <div className="text-gray-600 text-sm truncate">{p.dogName}</div>
-                                                                            {p.dogBreed && <div className="text-gray-500 text-xs">{p.dogBreed}</div>}
-                                                                        </div>
-                                                                    </div>
-                                                                    
-                                                                    <div className="grid grid-cols-2 gap-3 mb-3">
-                                                                        <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-                                                                            <div className="text-gray-600 text-xs mb-1">Пошук</div>
-                                                                            <div className="text-gray-900 font-medium">{p.results?.search?.toFixed(1) || '-'}</div>
-                                                                        </div>
-                                                                        <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-                                                                            <div className="text-gray-600 text-xs mb-1">Послух</div>
-                                                                            <div className="text-gray-900 font-medium">{p.results?.obedience?.toFixed(1) || '-'}</div>
-                                                                        </div>
-                                                                    </div>
-                                                                    
-                                                                    <div className="pt-3 border-t border-gray-200 space-y-2">
-                                                                        <div className="flex justify-between items-center">
-                                                                            <span className="text-gray-600 text-sm">Загальний бал:</span>
-                                                                            <span className="text-[#007AFF] font-bold text-lg">{p.results?.total?.toFixed(1) || '-'}</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between items-center">
-                                                                            <span className="text-gray-600 text-sm">Оцінка:</span>
-                                                                            <Badge variant="outline" className={`text-xs py-0.5 font-normal ${
-                                                                                p.results?.qualification === 'Відмінно' ? 'border-green-600 text-green-700 bg-green-50' :
-                                                                                p.results?.qualification === 'Дуже добре' ? 'border-blue-600 text-blue-700 bg-blue-50' :
-                                                                                p.results?.qualification === 'Добре' ? 'border-cyan-600 text-cyan-700 bg-cyan-50' :
-                                                                                p.results?.qualification === 'Задовільно' ? 'border-yellow-600 text-yellow-700 bg-yellow-50' :
-                                                                                p.results?.qualification === 'Недостатньо' ? 'border-red-600 text-red-700 bg-red-50' :
-                                                                                'border-gray-300 text-gray-600 bg-gray-50'
-                                                                            }`}>
-                                                                                {p.results?.qualification || '—'}
-                                                                            </Badge>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-
-                                                        <div className="hidden md:block overflow-x-auto">
-                                                            <table className="w-full border-collapse">
-                                                                <thead>
-                                                                    <tr className="bg-gray-50">
-                                                                        <th className="p-3 text-left text-gray-900">#</th>
-                                                                        <th className="p-3 text-left text-gray-900">Учасник</th>
-                                                                        <th className="p-3 text-left text-gray-900">Собака</th>
-                                                                        <th className="p-3 text-center text-gray-900">Пошук</th>
-                                                                        <th className="p-3 text-center text-gray-900">Послух</th>
-                                                                        <th className="p-3 text-center text-gray-900">Заг. бал</th>
-                                                                        <th className="p-3 text-left text-gray-900">Оцінка</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    {groupParticipants.map((p, idx) => (
-                                                                        <tr 
-                                                                            key={p.id || `${p.userId}-${p.dogId}-${idx}`}
-                                                                            className="border-t border-gray-200 hover:bg-gray-50"
-                                                                        >
-                                                                            <td className="p-3">
-                                                                                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-100 text-gray-700 font-medium">
-                                                                                    {p.results?.place || '—'}
-                                                                                </div>
-                                                                            </td>
-                                                                            <td className="p-3 text-gray-900">{p.userName}</td>
-                                                                            <td className="p-3">
-                                                                                <div className="text-gray-900">{p.dogName}</div>
-                                                                                {p.dogBreed && <div className="text-sm text-gray-600">{p.dogBreed}</div>}
-                                                                            </td>
-                                                                            <td className="p-3 text-center text-gray-700">{p.results?.search?.toFixed(1) || '-'}</td>
-                                                                            <td className="p-3 text-center text-gray-700">{p.results?.obedience?.toFixed(1) || '-'}</td>
-                                                                            <td className="p-3 text-center text-[#007AFF] font-bold">{p.results?.total?.toFixed(1) || '-'}</td>
-                                                                            <td className="p-3">
-                                                                                <Badge variant="outline" className={`text-sm py-1 font-normal ${
-                                                                                    p.results?.qualification === 'Відмінно' ? 'border-green-600 text-green-700 bg-green-50' :
-                                                                                    p.results?.qualification === 'Дуже добре' ? 'border-blue-600 text-blue-700 bg-blue-50' :
-                                                                                    p.results?.qualification === 'Добре' ? 'border-cyan-600 text-cyan-700 bg-cyan-50' :
-                                                                                    p.results?.qualification === 'Задовільно' ? 'border-yellow-600 text-yellow-700 bg-yellow-50' :
-                                                                                    p.results?.qualification === 'Недостатньо' ? 'border-red-600 text-red-700 bg-red-50' :
-                                                                                    'border-gray-300 text-gray-600 bg-gray-50'
-                                                                                }`}>
-                                                                                    {p.results?.qualification || '—'}
-                                                                                </Badge>
-                                                                            </td>
-                                                                        </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-
-                                            {Object.keys(groupsWithoutResults).map(groupName => {
-                                                const groupParticipants = groupsWithoutResults[groupName];
-                                                
-                                                return (
-                                                    <div key={groupName}>
-                                                        <h3 className="text-lg sm:text-xl text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                                                            {groupName}
-                                                        </h3>
-
-                                                        <div className="md:hidden space-y-3">
-                                                            {groupParticipants.map((p, idx) => (
-                                                                <div 
-                                                                    key={p.id || `${p.userId}-${p.dogId}-${idx}`}
-                                                                    className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm"
-                                                                >
-                                                                    <div className="flex items-start gap-3 mb-3">
-                                                                        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-700 font-medium">
-                                                                            {idx + 1}
-                                                                        </div>
-                                                                        <div className="flex-1 min-w-0">
-                                                                            <div className="text-gray-900 font-medium text-base truncate">{p.userName}</div>
-                                                                            <div className="text-gray-600 text-sm truncate">{p.dogName}</div>
-                                                                            {p.dogBreed && <div className="text-gray-500 text-xs">{p.dogBreed}</div>}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-
-                                                        <div className="hidden md:block overflow-x-auto">
-                                                            <table className="w-full border-collapse">
-                                                                <thead>
-                                                                    <tr className="bg-gray-50">
-                                                                        <th className="p-3 text-left text-gray-900">#</th>
-                                                                        <th className="p-3 text-left text-gray-900">Учасник</th>
-                                                                        <th className="p-3 text-left text-gray-900">Собака</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    {groupParticipants.map((p, idx) => (
-                                                                        <tr 
-                                                                            key={p.id || `${p.userId}-${p.dogId}-${idx}`}
-                                                                            className="border-t border-gray-200 hover:bg-gray-50"
-                                                                        >
-                                                                            <td className="p-3">
-                                                                                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-100 text-gray-700 font-medium">
-                                                                                    {idx + 1}
-                                                                                </div>
-                                                                            </td>
-                                                                            <td className="p-3 text-gray-900">{p.userName}</td>
-                                                                            <td className="p-3">
-                                                                                <div className="text-gray-900">{p.dogName}</div>
-                                                                                {p.dogBreed && <div className="text-sm text-gray-600">{p.dogBreed}</div>}
-                                                                            </td>
-                                                                        </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
+                                            {Object.entries(groups).map(([groupName, groupParticipants]) => (
+                                                <ResultsGroup
+                                                    key={groupName}
+                                                    groupName={groupName}
+                                                    participants={groupParticipants}
+                                                    showTitle={showTitle}
+                                                />
+                                            ))}
                                         </div>
                                     </CardContent>
                                 )}
