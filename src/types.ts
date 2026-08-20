@@ -61,7 +61,7 @@ export type Competition = {
   organizerId: string;
   organizerName?: string;
 
-  status: 'open' | 'closed' | 'completed';
+  status: 'planned' | 'registration_open' | 'registration_closed' | 'completed' | 'cancelled';
 
   // participants может отсутствовать у нового соревнования, поэтому поле optional.
   participants?: {
