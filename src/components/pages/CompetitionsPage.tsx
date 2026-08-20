@@ -40,6 +40,18 @@ const shouldShowCompetition = (competition: Competition, userProfile: UserProfil
   return userProfile?.role === 'organizer' && String(competition.organizerId) === String(userProfile.id);
 };
 
+const canEditCompetition = (competition: Competition, userProfile: UserProfile | null) => {
+  if (userProfile?.role === 'admin') return true;
+  return userProfile?.role === 'organizer'
+    && competition.status !== 'completed'
+    && String(competition.organizerId) === String(userProfile.id);
+};
+
+const isCompletedOrganizerView = (competition: Competition, userProfile: UserProfile | null) =>
+  userProfile?.role === 'organizer'
+  && competition.status === 'completed'
+  && String(competition.organizerId) === String(userProfile.id);
+
 export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, onPageChange }: CompetitionsPageProps & { onPageChange: (page: any, param?: string) => void }) {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -64,9 +76,9 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
   const fetchCompetitions = async () => {
     try {
       const data = await apiRequest('/competitions');
+      // Адміністратор бачить усі змагання.
+      // Організатор бачить власні завершені змагання, але вони переходять у read-only режим.
       // Для звичайного користувача завершені події залишаються тільки в «Результати».
-      // Адміністратор бачить усі змагання, а організатор — завершені змагання, які створив сам,
-      // щоб ними можна було й надалі керувати та, за потреби, змінити статус.
       setCompetitions(data.filter((comp: Competition) => shouldShowCompetition(comp, userProfile)));
     } catch (e) {
       console.error(e);
@@ -311,7 +323,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
                         </div>
 
                         <div className="mb-3">
-                            {isOrganizer && (comp.organizerId === userProfile?.id || userProfile?.role === 'admin') ? (
+                            {canEditCompetition(comp, userProfile) ? (
                                 <NativeSelect
                                     wrapperClassName="max-w-[340px]"
                                     value={comp.status || 'planned'}
@@ -333,7 +345,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
                     </div>
 
                     <div className="flex flex-col gap-3 justify-end md:w-[220px] border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6 shrink-0">
-                         {isOrganizer && (comp.organizerId === userProfile?.id || userProfile?.role === 'admin') ? (
+                         {canEditCompetition(comp, userProfile) ? (
                              <>
                                 <Button className="w-full bg-[#007AFF] hover:bg-[#0066CC] text-white gap-2 h-11 text-base" onClick={() => openManage(comp)}>
                                     <Settings size={18} /> Керувати
@@ -345,6 +357,10 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
                                     <Trash2 size={18} /> Видалити
                                 </Button>
                              </>
+                         ) : isCompletedOrganizerView(comp, userProfile) ? (
+                             <div className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl text-center border border-gray-300 font-medium text-base">
+                                Лише перегляд
+                             </div>
                          ) : (
                              <>
                                 {comp.status === 'registration_open' ? (
