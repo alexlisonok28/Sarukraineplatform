@@ -69,7 +69,7 @@ async function sessionFor(env: Env, user: any) {
   const expires = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7;
   const access_token = await new SignJWT({ email: user.email, role: user.role })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(user.id).setIssuedAt().setExpirationTime(expires).sign(secretFor(env));
-  return { access_token, expires_at: expires, user: { id: user.id, email: user.email } };
+  return { access_token, expires_at: expires, user: { id:user.id, email:user.email } };
 }
 
 const requireRole = (user: any, roles: string[]) => user && roles.includes(user.role);
@@ -77,14 +77,9 @@ const requireRole = (user: any, roles: string[]) => user && roles.includes(user.
 const canManageCompetition = (user: any, competition: any) => {
   if (!user) return false;
   if (user.role === 'admin') return true;
-  return user.role === 'organizer' && String(competition?.organizerId || '') === String(user.id);
+  return user.role === 'organizer' && competition?.status !== 'completed' && String(competition?.organizerId || '') === String(user.id);
 };
 
-/**
- * Єдина серверна шкала оцінки результату.
- * Мінімум: пошук 140, послух 70. Навіть при достатній сумі порушення
- * будь-якого з мінімумів дає «Недостатньо».
- */
 const normalizeCompetitionResults = (results: any) => {
   if (!results || (results.search === undefined && results.obedience === undefined)) return results;
 
@@ -103,10 +98,7 @@ const normalizeCompetitionResults = (results: any) => {
     ...results,
     total,
     qualification,
-    // Бізнес-правило: «Недостатньо» ніколи не має рейтингового місця.
-    place: qualification === 'Недостатньо' || qualification === 'Не класифіковано'
-      ? undefined
-      : results.place
+    place: qualification === 'Недостатньо' || qualification === 'Не класифіковано' ? undefined : results.place
   };
 };
 
@@ -248,10 +240,6 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const c=list.find(x=>x.id===compResults[1]);
       if(!c) return json({error:'Competition not found'},404);
 
-      // Актуальна модель зберігає заявки та їх результати в participants.
-      // Старе поле results залишаємо лише як fallback для legacy-змагань,
-      // у яких participants взагалі відсутній. Це не дає порожньому/старому
-      // c.results перекривати нові результати, збережені через сторінку керування.
       const source:any[] = Array.isArray(c.participants)
         ? c.participants
         : (Array.isArray(c.results) ? c.results : []);
@@ -275,8 +263,6 @@ export const onRequest = async ({ request, env }: Ctx) => {
         };
       }));
 
-      // ResultsPage очікує об'єкт з participants. Старі некоректні place при
-      // «Недостатньо» тут уже очищені, тому публічна сторінка їх не покаже.
       return json({participants});
     }
 
@@ -319,8 +305,6 @@ export const onRequest = async ({ request, env }: Ctx) => {
             migratedLegacyStatus = true;
           }
 
-          // Також нормалізуємо старі збережені результати при відкритті керування.
-          // Це не дозволяє старому place з «Недостатньо» знову з'явитися в UI.
           if (p.results) {
             const normalized = normalizeCompetitionResults(p.results);
             if (JSON.stringify(normalized) !== JSON.stringify(p.results)) {
