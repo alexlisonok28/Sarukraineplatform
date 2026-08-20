@@ -1,4 +1,4 @@
-import { currentUser, ensureStorageSchema, json, safeDownloadName, sqlFor, type StorageEnv } from '../../_shared/storage';
+import { canReviewDogDocuments, currentUser, ensureStorageSchema, json, safeDownloadName, sqlFor, type StorageEnv } from '../../_shared/storage';
 
 type Ctx = { request: Request; env: StorageEnv; params: { fileId: string } };
 
@@ -28,16 +28,21 @@ export const onRequestGet = async ({ request, env, params }: Ctx) => {
     const file: any = rows[0];
 
     if (file) {
+      const dogRows = file.scope === 'dog'
+        ? await sql`SELECT dog_id AS "dogId" FROM dog_documents WHERE file_id=${fileId} LIMIT 1`
+        : [];
+      const dogId = dogRows[0]?.dogId ? String(dogRows[0].dogId) : '';
+      const canReviewDogFile = dogId && user ? await canReviewDogDocuments(env, user, dogId) : false;
       const isOwner = user && String(file.owner_id) === String(user.id);
       const isAdmin = user?.role === 'admin';
-      if (!isPublicDocumentFile && !isCompetitionRegistrationFile && !isOwner && !isAdmin) {
+      if (!isPublicDocumentFile && !isCompetitionRegistrationFile && !isOwner && !isAdmin && !canReviewDogFile) {
         return json({ error: 'Unauthorized' }, 401);
       }
 
       const object = await env.DOCUMENTS_BUCKET.get(file.storage_key);
       if (!object) return json({ error: 'File not found in storage' }, 404);
 
-      const disposition = isCompetitionRegistrationFile && !isPublicDocumentFile ? 'inline' : 'attachment';
+      const disposition = (isCompetitionRegistrationFile || file.scope === 'dog') && !isPublicDocumentFile ? 'inline' : 'attachment';
       return new Response(object.body, {
         status: 200,
         headers: {
