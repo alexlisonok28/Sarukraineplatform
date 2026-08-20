@@ -34,6 +34,12 @@ const getStatusConfig = (status: string) => {
   return configs[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
 };
 
+const shouldShowCompetition = (competition: Competition, userProfile: UserProfile | null) => {
+  if (competition.status !== 'completed') return true;
+  if (userProfile?.role === 'admin') return true;
+  return userProfile?.role === 'organizer' && String(competition.organizerId) === String(userProfile.id);
+};
+
 export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, onPageChange }: CompetitionsPageProps & { onPageChange: (page: any, param?: string) => void }) {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -53,14 +59,15 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
 
   useEffect(() => {
     fetchCompetitions();
-  }, []);
+  }, [userProfile?.id, userProfile?.role]);
 
   const fetchCompetitions = async () => {
     try {
       const data = await apiRequest('/competitions');
-      // Розділ «Змагання» містить актуальні, майбутні та скасовані події.
-      // Лише завершені змагання переносяться до розділу «Результати».
-      setCompetitions(data.filter((comp: Competition) => comp.status !== 'completed'));
+      // Для звичайного користувача завершені події залишаються тільки в «Результати».
+      // Адміністратор бачить усі змагання, а організатор — завершені змагання, які створив сам,
+      // щоб ними можна було й надалі керувати та, за потреби, змінити статус.
+      setCompetitions(data.filter((comp: Competition) => shouldShowCompetition(comp, userProfile)));
     } catch (e) {
       console.error(e);
     }
@@ -72,12 +79,12 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
          const updatedComp = await apiRequest(`/competitions/${selectedCompForEdit.id}`, 'PUT', data);
          setCompetitions(current => {
              const updated = current.map(c => c.id === updatedComp.id ? updatedComp : c);
-             return updated.filter(c => c.status !== 'completed');
+             return updated.filter(c => shouldShowCompetition(c, userProfile));
          });
          showToast('Змагання оновлено!', 'success');
       } else {
          const newComp = await apiRequest('/competitions', 'POST', data);
-         if (newComp.status !== 'completed') {
+         if (shouldShowCompetition(newComp, userProfile)) {
              setCompetitions(current => [...current, newComp]);
          }
          showToast('Змагання створено!', 'success');
@@ -112,14 +119,10 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
       try {
           await apiRequest(`/competitions/${compId}`, 'PUT', { status: newStatus });
 
-          // Після встановлення статусу «Завершені» картка одразу зникає з цього
-          // розділу без перезавантаження сторінки. Скасовані події залишаються
-          // видимими в «Змагання» з відповідним статусом.
-          if (newStatus === 'completed') {
-              setCompetitions(current => current.filter(c => c.id !== compId));
-          } else {
-              setCompetitions(current => current.map(c => c.id === compId ? { ...c, status: newStatus as Competition['status'] } : c));
-          }
+          setCompetitions(current => current
+              .map(c => c.id === compId ? { ...c, status: newStatus as Competition['status'] } : c)
+              .filter(c => shouldShowCompetition(c, userProfile))
+          );
 
           showToast('Статус оновлено', 'success');
       } catch (e) {
