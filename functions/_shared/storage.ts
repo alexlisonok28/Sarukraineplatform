@@ -67,8 +67,17 @@ export async function ensureStorageSchema(env: StorageEnv) {
     document_type TEXT NOT NULL CHECK (document_type IN ('pedigree','attestation')),
     category TEXT,
     file_id UUID NOT NULL REFERENCES stored_files(id) ON DELETE CASCADE,
+    is_checked BOOLEAN NOT NULL DEFAULT false,
+    checked_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    checked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`;
+
+  // Existing installations may already have dog_documents from the first R2 release.
+  // ADD COLUMN IF NOT EXISTS upgrades them in place without a manual migration.
+  await sql`ALTER TABLE dog_documents ADD COLUMN IF NOT EXISTS is_checked BOOLEAN NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE dog_documents ADD COLUMN IF NOT EXISTS checked_by UUID REFERENCES users(id) ON DELETE SET NULL`;
+  await sql`ALTER TABLE dog_documents ADD COLUMN IF NOT EXISTS checked_at TIMESTAMPTZ`;
 
   await sql`CREATE INDEX IF NOT EXISTS dog_documents_dog_id_idx ON dog_documents(dog_id)`;
   await sql`CREATE INDEX IF NOT EXISTS dog_documents_owner_id_idx ON dog_documents(owner_id)`;
@@ -94,6 +103,25 @@ export async function userOwnsDog(env: StorageEnv, userId: string, dogId: string
   const rows = await sqlFor(env)`SELECT value FROM app_data WHERE key=${`dogs:${userId}`}`;
   const dogs: any[] = rows[0]?.value || [];
   return dogs.some(dog => String(dog?.id) === String(dogId));
+}
+
+/**
+ * Admin may review every dog document.
+ * Organizer may review documents only for a dog registered in one of their
+ * competitions that is still manageable. Completed competitions stay read-only.
+ */
+export async function canReviewDogDocuments(env: StorageEnv, user: any, dogId: string) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (user.role !== 'organizer') return false;
+
+  const rows = await sqlFor(env)`SELECT value FROM app_data WHERE key='competitions'`;
+  const competitions: any[] = rows[0]?.value || [];
+  return competitions.some(competition =>
+    competition?.status !== 'completed' &&
+    String(competition?.organizerId || '') === String(user.id) &&
+    (competition?.participants || []).some((participant: any) => String(participant?.dogId || '') === String(dogId))
+  );
 }
 
 export const DOG_DOCUMENT_CATEGORIES = [
