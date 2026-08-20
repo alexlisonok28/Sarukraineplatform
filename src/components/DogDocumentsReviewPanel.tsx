@@ -28,6 +28,7 @@ export default function DogDocumentsReviewPanel({ dogId, showToast }: Props) {
   const [documents, setDocuments] = useState<DogDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
 
   const loadDocuments = async () => {
     try {
@@ -46,24 +47,44 @@ export default function DogDocumentsReviewPanel({ dogId, showToast }: Props) {
   }, [dogId]);
 
   const openDocument = async (document: DogDocument) => {
+    if (openingId) return;
+
+    // Open the tab synchronously from the user's click. If window.open happens
+    // after await/fetch, browsers may treat it as a popup and block it randomly.
+    const previewWindow = window.open('', '_blank');
+    if (!previewWindow) {
+      showToast('Браузер заблокував відкриття документа. Дозвольте спливаючі вікна для цього сайту.', 'error');
+      return;
+    }
+
     try {
+      setOpeningId(document.id);
+      previewWindow.document.title = document.fileName || 'Документ';
+      previewWindow.document.body.innerHTML = '<p style="font-family: sans-serif; padding: 24px;">Завантаження документа...</p>';
+
       const { data: { session } } = await auth.getSession();
       const baseUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
       const response = await fetch(`${baseUrl}/files/${document.fileId}`, {
         headers: { Authorization: `Bearer ${session?.access_token || ''}` },
       });
       if (!response.ok) throw new Error('Не вдалося відкрити документ');
+
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      previewWindow.location.replace(url);
+
+      // Keep the object URL alive long enough for the new tab to finish loading.
+      window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
     } catch (error: any) {
+      try { previewWindow.close(); } catch {}
       showToast(error?.message || 'Помилка відкриття документа', 'error');
+    } finally {
+      setOpeningId(null);
     }
   };
 
   const verifyDocument = async (document: DogDocument) => {
-    if (document.isChecked) return;
+    if (document.isChecked || checkingId) return;
     setCheckingId(document.id);
     try {
       const checked = await apiRequest(`/dogs/${dogId}/documents/${document.id}/verify`, 'POST', {});
@@ -115,15 +136,17 @@ export default function DogDocumentsReviewPanel({ dogId, showToast }: Props) {
           <div className="flex flex-wrap items-center gap-2 mt-2">
             <button
               type="button"
+              disabled={openingId !== null}
               onClick={() => openDocument(document)}
-              className="inline-flex items-center gap-1 text-xs font-medium text-[#007AFF] hover:text-[#0066CC]"
+              className="inline-flex items-center gap-1 text-xs font-medium text-[#007AFF] hover:text-[#0066CC] disabled:cursor-wait disabled:opacity-50"
             >
-              <Eye className="w-3.5 h-3.5" /> Переглянути
+              <Eye className="w-3.5 h-3.5" />
+              {openingId === document.id ? 'Відкриття...' : 'Переглянути'}
             </button>
             {!document.isChecked && (
               <button
                 type="button"
-                disabled={checkingId === document.id}
+                disabled={checkingId !== null}
                 onClick={() => verifyDocument(document)}
                 className="inline-flex items-center gap-1 rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
               >
