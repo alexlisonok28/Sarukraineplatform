@@ -14,14 +14,14 @@ import DocumentsPage from './components/pages/DocumentsPage';
 import ResultsPage from './components/pages/ResultsPage';
 import RatingPage from './components/pages/RatingPage';
 import AdminPage from './components/pages/AdminPage';
-import ManageCompetitionPage from './components/pages/ManageCompetitionPage';
+import ManageCompetitionPage from './components/pages/ManageCompetitionWithDocumentsPage';
 import ToastContainer from './components/ToastContainer';
 import { auth } from './utils/auth';
 import { apiRequest } from './utils/api';
 import { UserProfile } from './types';
 
 export type PageType = 'landing' | 'cabinet' | 'login' | 'register' | 'forgot-password' | 'reset-password' | 'competitions' | 'judges' | 'teams' | 'documents' | 'results' | 'rating' | 'admin' | 'manage-competition';
-export type Toast = { id: string; message: string; type: 'success' | 'error' | 'warning' | 'info' };
+export type Toast = { id: string; message: string; type: 'success' | 'error' | 'warning' | 'info'; };
 
 export default function App() {
   const resetToken = new URLSearchParams(window.location.search).get('resetToken') || '';
@@ -36,45 +36,46 @@ export default function App() {
   useEffect(() => {
     let isCancelled = false;
     const initializeAuth = async () => {
+      console.log('[App] Initializing auth state...');
       try {
         const { data: { session }, error } = await auth.getSession();
         if (isCancelled) return;
-        if (error) { await auth.signOut({ scope: 'local' }); setIsLoggedIn(false); setUserProfile(null); return; }
+        if (error) { console.error('[App] Error getting initial session:', error); await auth.signOut({ scope: 'local' }); setIsLoggedIn(false); setUserProfile(null); return; }
         setIsLoggedIn(!!session);
-        if (session?.access_token) {
-          await fetchProfile(session.access_token);
-          if (!isCancelled && !resetToken) setCurrentPage(prev => prev === 'landing' ? 'cabinet' : prev);
-        }
-      } catch {
-        await auth.signOut({ scope: 'local' });
-        if (!isCancelled) { setIsLoggedIn(false); setUserProfile(null); }
-      } finally { if (!isCancelled) setAuthInitialized(true); }
+        if (session?.access_token) { await fetchProfile(session.access_token); if (!isCancelled && !resetToken) setCurrentPage(prev => prev === 'landing' ? 'cabinet' : prev); }
+      } catch (err) { console.error('[App] Unexpected error in getSession:', err); await auth.signOut({ scope: 'local' }); if (!isCancelled) { setIsLoggedIn(false); setUserProfile(null); } }
+      finally { if (!isCancelled) setAuthInitialized(true); }
     };
     initializeAuth();
-    const { data: { subscription } } = auth.onAuthStateChange((_event, session) => {
-      setIsLoggedIn(!!session);
-      if (session?.access_token) fetchProfile(session.access_token); else setUserProfile(null);
-    });
+    const { data: { subscription } } = auth.onAuthStateChange((_event, session) => { setIsLoggedIn(!!session); if (session?.access_token) fetchProfile(session.access_token); else setUserProfile(null); });
     return () => { isCancelled = true; subscription.unsubscribe(); };
   }, []);
 
   const fetchProfile = async (token?: string) => {
     try {
       if (!token) {
-        const { data: { session } } = await auth.getSession();
-        if (!session) return;
-        token = session.access_token;
+        const { data: { session }, error } = await auth.getSession();
+        if (error || !session) return;
+        const expiresAt = session.expires_at; const now = Math.floor(Date.now() / 1000);
+        if (expiresAt && expiresAt < now + 60) {
+          const { data: { session: newSession }, error: refreshError } = await auth.refreshSession();
+          if (refreshError || !newSession) { await auth.signOut({ scope: 'local' }); setIsLoggedIn(false); setUserProfile(null); return; }
+          token = newSession.access_token;
+        } else token = session.access_token;
       }
       const profile = await apiRequest('/profile', 'GET', undefined, token);
-      const { data: { session } } = await auth.getSession();
-      setUserProfile({ ...profile, id: session?.user?.id || profile.id, email: session?.user?.email || profile.email });
-    } catch (e: any) { console.error('Profile fetch error:', e); }
+      const { data: { session: identitySession } } = await auth.getSession();
+      setUserProfile({ ...profile, id: identitySession?.user?.id || profile.id, email: identitySession?.user?.email || profile.email });
+    } catch (e: any) {
+      console.error('Profile fetch error:', e);
+      if (e.message && (e.message.includes('401') || e.message.includes('Unauthorized'))) {
+        try { const { data: { session }, error } = await auth.refreshSession(); if (!session || error) { await auth.signOut({ scope: 'local' }); setIsLoggedIn(false); setUserProfile(null); } else setTimeout(() => fetchProfile(session.access_token), 500); }
+        catch { await auth.signOut({ scope: 'local' }); setIsLoggedIn(false); setUserProfile(null); }
+      } else if (e.message && e.message.includes('503')) setTimeout(() => fetchProfile(token), 2000);
+    }
   };
 
-  const showToast = (message: string, type: Toast['type'] = 'success') => {
-    const id = Date.now().toString(); setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
-  };
+  const showToast = (message: string, type: Toast['type'] = 'success') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, message, type }]); setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000); };
   const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
   const showPage = (page: PageType, param?: string) => {
     if ((page === 'cabinet' || page === 'rating' || page === 'admin') && !isLoggedIn) { showToast('Увійдіть, щоб переглянути цю сторінку', 'info'); setCurrentPage('login'); return; }
