@@ -1,4 +1,4 @@
-import { currentUser, decodeBase64, DOG_DOCUMENT_CATEGORIES, ensureStorageSchema, json, safeExtension, sqlFor, userOwnsDog, type StorageEnv } from '../../../_shared/storage';
+import { canReviewDogDocuments, currentUser, decodeBase64, DOG_DOCUMENT_CATEGORIES, ensureStorageSchema, json, safeExtension, sqlFor, userOwnsDog, type StorageEnv } from '../../../_shared/storage';
 
 type Ctx = { request: Request; env: StorageEnv; params: { dogId: string } };
 
@@ -10,23 +10,32 @@ export const onRequestGet = async ({ request, env, params }: Ctx) => {
 
     const dogId = String(params.dogId || '');
     const ownsDog = await userOwnsDog(env, String(user.id), dogId);
-    if (!ownsDog && user.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+    const canReview = await canReviewDogDocuments(env, user, dogId);
+    if (!ownsDog && !canReview) return json({ error: 'Forbidden' }, 403);
 
-    const ownerId = ownsDog ? String(user.id) : null;
-    const rows = ownerId
-      ? await sqlFor(env)`
+    const sql = sqlFor(env);
+    const rows = ownsDog
+      ? await sql`
           SELECT d.id,d.dog_id AS "dogId",d.document_type AS "documentType",d.category,
+                 d.is_checked AS "isChecked",d.checked_by AS "checkedBy",d.checked_at AS "checkedAt",
                  d.created_at AS "createdAt",f.id AS "fileId",f.original_name AS "fileName",
-                 f.content_type AS "contentType",f.file_size AS "fileSize"
-          FROM dog_documents d JOIN stored_files f ON f.id=d.file_id
-          WHERE d.dog_id=${dogId} AND d.owner_id=${ownerId}
+                 f.content_type AS "contentType",f.file_size AS "fileSize",
+                 checker.name AS "checkedByName",checker.email AS "checkedByEmail"
+          FROM dog_documents d
+          JOIN stored_files f ON f.id=d.file_id
+          LEFT JOIN users checker ON checker.id=d.checked_by
+          WHERE d.dog_id=${dogId} AND d.owner_id=${String(user.id)}
           ORDER BY d.created_at DESC
         `
-      : await sqlFor(env)`
+      : await sql`
           SELECT d.id,d.dog_id AS "dogId",d.document_type AS "documentType",d.category,
+                 d.is_checked AS "isChecked",d.checked_by AS "checkedBy",d.checked_at AS "checkedAt",
                  d.created_at AS "createdAt",f.id AS "fileId",f.original_name AS "fileName",
-                 f.content_type AS "contentType",f.file_size AS "fileSize"
-          FROM dog_documents d JOIN stored_files f ON f.id=d.file_id
+                 f.content_type AS "contentType",f.file_size AS "fileSize",
+                 checker.name AS "checkedByName",checker.email AS "checkedByEmail"
+          FROM dog_documents d
+          JOIN stored_files f ON f.id=d.file_id
+          LEFT JOIN users checker ON checker.id=d.checked_by
           WHERE d.dog_id=${dogId}
           ORDER BY d.created_at DESC
         `;
@@ -81,12 +90,14 @@ export const onRequestPost = async ({ request, env, params }: Ctx) => {
       fileRowCreated = true;
 
       const rows = await sql`
-        INSERT INTO dog_documents(id,dog_id,owner_id,document_type,category,file_id)
-        VALUES(${documentId},${dogId},${user.id},${documentType},${category},${fileId})
-        RETURNING id,dog_id AS "dogId",document_type AS "documentType",category,created_at AS "createdAt"
+        INSERT INTO dog_documents(id,dog_id,owner_id,document_type,category,file_id,is_checked,checked_by,checked_at)
+        VALUES(${documentId},${dogId},${user.id},${documentType},${category},${fileId},false,NULL,NULL)
+        RETURNING id,dog_id AS "dogId",document_type AS "documentType",category,
+                  is_checked AS "isChecked",checked_by AS "checkedBy",checked_at AS "checkedAt",
+                  created_at AS "createdAt"
       `;
 
-      return json({ ...rows[0], fileId, fileName: originalName, contentType, fileSize: bytes.length }, 201);
+      return json({ ...rows[0], fileId, fileName: originalName, contentType, fileSize: bytes.length, checkedByName: null, checkedByEmail: null }, 201);
     } catch (error) {
       if (fileRowCreated) {
         try { await sql`DELETE FROM stored_files WHERE id=${fileId}`; } catch {}
