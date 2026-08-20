@@ -72,21 +72,25 @@ export const onRequestPost = async ({ request, env, params }: Ctx) => {
     });
 
     const sql = sqlFor(env);
+    let fileRowCreated = false;
     try {
-      await sql`BEGIN`;
       await sql`
         INSERT INTO stored_files(id,owner_id,storage_key,original_name,content_type,file_size,scope)
         VALUES(${fileId},${user.id},${storageKey},${originalName},${contentType},${bytes.length},'dog')
       `;
+      fileRowCreated = true;
+
       const rows = await sql`
         INSERT INTO dog_documents(id,dog_id,owner_id,document_type,category,file_id)
         VALUES(${documentId},${dogId},${user.id},${documentType},${category},${fileId})
         RETURNING id,dog_id AS "dogId",document_type AS "documentType",category,created_at AS "createdAt"
       `;
-      await sql`COMMIT`;
+
       return json({ ...rows[0], fileId, fileName: originalName, contentType, fileSize: bytes.length }, 201);
     } catch (error) {
-      try { await sql`ROLLBACK`; } catch {}
+      if (fileRowCreated) {
+        try { await sql`DELETE FROM stored_files WHERE id=${fileId}`; } catch {}
+      }
       await env.DOCUMENTS_BUCKET.delete(storageKey);
       throw error;
     }
