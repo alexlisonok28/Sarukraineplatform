@@ -14,7 +14,7 @@ import DocumentsPage from './components/pages/DocumentsPage';
 import ResultsPage from './components/pages/ResultsPage';
 import RatingPage from './components/pages/RatingPage';
 import AdminPage from './components/pages/AdminPage';
-import ManageCompetitionPage from './components/pages/ManageCompetitionPage';
+import ManageCompetitionPage from './components/pages/ManageCompetitionWithDocumentsPage';
 import ToastContainer from './components/ToastContainer';
 import { auth } from './utils/auth';
 import { apiRequest } from './utils/api';
