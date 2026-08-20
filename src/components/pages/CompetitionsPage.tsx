@@ -29,6 +29,7 @@ const getStatusConfig = (status: string) => {
     'registration_open': { label: 'Йде реєстрація', color: 'bg-green-100 text-green-700' },
     'registration_closed': { label: 'Реєстрація завершена', color: 'bg-yellow-100 text-yellow-700' },
     'completed': { label: 'Завершені', color: 'bg-purple-100 text-purple-700' },
+    'cancelled': { label: 'Скасовані', color: 'bg-red-100 text-red-700' },
   };
   return configs[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
 };
@@ -57,8 +58,8 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
   const fetchCompetitions = async () => {
     try {
       const data = await apiRequest('/competitions');
-      // Розділ «Змагання» містить тільки актуальні/майбутні події.
-      // Завершені змагання залишаються в API, але показуються лише в «Результати».
+      // Розділ «Змагання» містить актуальні, майбутні та скасовані події.
+      // Лише завершені змагання переносяться до розділу «Результати».
       setCompetitions(data.filter((comp: Competition) => comp.status !== 'completed'));
     } catch (e) {
       console.error(e);
@@ -112,12 +113,12 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
           await apiRequest(`/competitions/${compId}`, 'PUT', { status: newStatus });
 
           // Після встановлення статусу «Завершені» картка одразу зникає з цього
-          // розділу без перезавантаження сторінки. Дані не видаляються — вони
-          // залишаються доступними в «Результати».
+          // розділу без перезавантаження сторінки. Скасовані події залишаються
+          // видимими в «Змагання» з відповідним статусом.
           if (newStatus === 'completed') {
               setCompetitions(current => current.filter(c => c.id !== compId));
           } else {
-              setCompetitions(current => current.map(c => c.id === compId ? { ...c, status: newStatus } : c));
+              setCompetitions(current => current.map(c => c.id === compId ? { ...c, status: newStatus as Competition['status'] } : c));
           }
 
           showToast('Статус оновлено', 'success');
@@ -318,6 +319,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
                                     <option value="registration_open">Йде реєстрація</option>
                                     <option value="registration_closed">Реєстрація завершена</option>
                                     <option value="completed">Завершені</option>
+                                    <option value="cancelled">Скасовані</option>
                                 </NativeSelect>
                             ) : (
                                 <Badge className={`${getStatusConfig(comp.status || 'planned').color} border-none px-3 py-1.5 text-sm font-medium text-[16px]`}>
@@ -349,7 +351,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
                                      </button>
                                     ) : null
                                  ) : (
-                                     <div className="w-full py-3 bg-gray-100 text-gray-500 rounded-xl text-center border border-gray-300 font-medium text-base">Реєстрація закрита</div>
+                                     <div className="w-full py-3 bg-gray-100 text-gray-500 rounded-xl text-center border border-gray-300 font-medium text-base">{comp.status === 'cancelled' ? 'Змагання скасовано' : 'Реєстрація закрита'}</div>
                                  )}
                              </>
                          )}
