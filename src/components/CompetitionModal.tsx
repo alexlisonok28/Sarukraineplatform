@@ -173,7 +173,11 @@ export default function CompetitionModal({ isOpen, onClose, onSave, editingComp 
           <div className="mb-5">
             <label className="block text-base text-gray-900 mb-2 font-medium">Статус змагань</label>
             <NativeSelect value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })} required>
-              <option value="planned">Реєстрація скоро відкриється</option><option value="registration_open">Йде реєстрація</option><option value="registration_closed">Реєстрація завершена</option><option value="completed">Завершені</option>
+              <option value="planned">Реєстрація скоро відкриється</option>
+              <option value="registration_open">Йде реєстрація</option>
+              <option value="registration_closed">Реєстрація завершена</option>
+              <option value="completed">Завершені</option>
+              <option value="cancelled">Скасовані</option>
             </NativeSelect>
           </div>
           <div className="mb-5">
