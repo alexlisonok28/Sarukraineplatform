@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dog, UserProfile } from '../../types';
 import { PageType } from '../../App';
 import DogModal from '../DogModal';
+import DogDocumentsPanel from '../DogDocumentsPanel';
 import { ClipboardList, ArrowRight, Plus, Mail, MessageCircle, Calendar, MapPin, Trophy, Paperclip } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { auth } from '../../utils/auth';
@@ -196,6 +197,7 @@ export default function CabinetPage({ userProfile, setUserProfile, onPageChange,
                       <button className="flex-1 px-[10px] py-[10px] border-none rounded-lg cursor-pointer transition-all duration-300 bg-blue-100 text-blue-700 hover:bg-blue-200 text-base" onClick={() => openDogModal(dog.id)}>Редагувати</button>
                       <button className="flex-1 px-[10px] py-[10px] border-none rounded-lg cursor-pointer transition-all duration-300 bg-red-100 text-red-700 hover:bg-red-200 text-base" onClick={() => deleteDog(dog.id)}>Видалити</button>
                     </div>
+                    <DogDocumentsPanel dogId={dog.id} showToast={showToast} />
                   </div>
                 ))}
               </div>
