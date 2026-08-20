@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { FileCheck2, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import ManageCompetitionPage from './ManageCompetitionPage';
 import DogDocumentsReviewPanel from '../DogDocumentsReviewPanel';
 import { apiRequest } from '../../utils/api';
 import { UserProfile } from '../../types';
-import { Button } from '../ui/button';
 
 type Props = {
   competitionId: string;
@@ -22,74 +21,139 @@ type ParticipantDog = {
 };
 
 /**
- * Keeps the existing competition-management screen intact and adds a dedicated
- * dog-document review surface for Admin/Organizer. All security decisions are
- * still enforced by the API; this component only exposes the permitted actions.
+ * Adds access to the dog's persistent documents directly from the participant
+ * application row without modifying the large competition-management page.
+ * The API still performs all authorization checks.
  */
 export default function ManageCompetitionWithDocumentsPage(props: Props) {
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [dogs, setDogs] = useState<ParticipantDog[]>([]);
-  const [loadingDogs, setLoadingDogs] = useState(false);
-
-  const loadDogs = async () => {
-    setLoadingDogs(true);
-    try {
-      const competition = await apiRequest(`/competitions/${props.competitionId}/details`);
-      const unique = new Map<string, ParticipantDog>();
-      (competition.participants || []).forEach((participant: any) => {
-        const dogId = String(participant.dogId || '');
-        if (!dogId || unique.has(dogId)) return;
-        unique.set(dogId, {
-          dogId,
-          dogName: participant.dogName || 'Невідома собака',
-          dogBreed: participant.dogBreed || '',
-          userName: participant.userName || '',
-          category: participant.category || participant.class || '',
-        });
-      });
-      setDogs(Array.from(unique.values()));
-    } catch (error: any) {
-      console.error(error);
-      props.showToast(error?.message || 'Не вдалося завантажити документи собак', 'error');
-    } finally {
-      setLoadingDogs(false);
-    }
-  };
+  const [pendingDogs, setPendingDogs] = useState<ParticipantDog[]>([]);
+  const [selectedDog, setSelectedDog] = useState<ParticipantDog | null>(null);
 
   useEffect(() => {
-    if (reviewOpen) loadDogs();
-  }, [reviewOpen, props.competitionId]);
+    let cancelled = false;
 
-  const sortedDogs = useMemo(() => [...dogs].sort((a, b) => a.dogName.localeCompare(b.dogName, 'uk')), [dogs]);
+    const loadPendingDogs = async () => {
+      try {
+        const competition = await apiRequest(`/competitions/${props.competitionId}/details`);
+        if (cancelled) return;
+
+        const dogs = (competition.participants || [])
+          .filter((participant: any) => participant.status === 'registered')
+          .map((participant: any) => ({
+            dogId: String(participant.dogId || ''),
+            dogName: participant.dogName || 'Невідома собака',
+            dogBreed: participant.dogBreed || '',
+            userName: participant.userName || '',
+            category: participant.category || participant.class || '',
+          }))
+          .filter((dog: ParticipantDog) => Boolean(dog.dogId));
+
+        setPendingDogs(dogs);
+      } catch (error) {
+        console.error('Failed to load dogs for document review:', error);
+        setPendingDogs([]);
+      }
+    };
+
+    loadPendingDogs();
+    return () => { cancelled = true; };
+  }, [props.competitionId]);
+
+  useEffect(() => {
+    if (pendingDogs.length === 0) return;
+
+    let frame = 0;
+
+    const removeInjectedButtons = () => {
+      document.querySelectorAll('[data-dog-documents-trigger="true"]').forEach(node => node.remove());
+    };
+
+    const attachButtons = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const headings = Array.from(document.querySelectorAll('div, h1, h2, h3'));
+        const heading = headings.find(node => node.textContent?.trim().startsWith('Нові заявки на участь'));
+        if (!heading) return;
+
+        const card = heading.closest('.mb-8');
+        if (!card) return;
+
+        // Desktop table: participant order matches pendingParticipants in ManageCompetitionPage.
+        const rows = Array.from(card.querySelectorAll('table tbody tr'));
+        rows.forEach((row, index) => {
+          const dog = pendingDogs[index];
+          if (!dog) return;
+          const cells = row.querySelectorAll('td');
+          const documentsCell = cells[3] as HTMLElement | undefined;
+          if (!documentsCell || documentsCell.querySelector('[data-dog-documents-trigger="true"]')) return;
+
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.dataset.dogDocumentsTrigger = 'true';
+          button.className = 'mt-1 inline-flex items-center text-sm text-[#007AFF] hover:text-[#0066CC] underline';
+          button.textContent = 'Документи собаки';
+          button.addEventListener('click', () => setSelectedDog(dog));
+          documentsCell.appendChild(button);
+        });
+
+        // Mobile cards: find the "Документи" label inside each application card.
+        const mobileContainer = card.querySelector('.md\\:hidden');
+        if (mobileContainer) {
+          const cards = Array.from(mobileContainer.children);
+          cards.forEach((applicationCard, index) => {
+            const dog = pendingDogs[index];
+            if (!dog) return;
+            const labels = Array.from(applicationCard.querySelectorAll('div'));
+            const documentsLabel = labels.find(node => node.textContent?.trim() === 'Документи');
+            const documentsBlock = documentsLabel?.parentElement;
+            if (!documentsBlock || documentsBlock.querySelector('[data-dog-documents-trigger="true"]')) return;
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.dataset.dogDocumentsTrigger = 'true';
+            button.className = 'mt-2 block text-sm text-[#007AFF] hover:text-[#0066CC] underline';
+            button.textContent = 'Документи собаки';
+            button.addEventListener('click', () => setSelectedDog(dog));
+            documentsBlock.appendChild(button);
+          });
+        }
+      });
+    };
+
+    attachButtons();
+    const observer = new MutationObserver(() => attachButtons());
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      removeInjectedButtons();
+    };
+  }, [pendingDogs]);
 
   return (
     <div className="relative">
       <ManageCompetitionPage {...props} />
 
-      <div className="fixed bottom-6 right-6 z-[120]">
-        <Button
-          type="button"
-          onClick={() => setReviewOpen(true)}
-          className="h-12 rounded-xl bg-[#007AFF] px-5 text-white shadow-lg hover:bg-[#0066CC]"
+      {selectedDog && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedDog(null);
+          }}
         >
-          <FileCheck2 className="w-5 h-5 mr-2" /> Документи собак
-        </Button>
-      </div>
-
-      {reviewOpen && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setReviewOpen(false);
-        }}>
-          <div className="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-gray-200 p-5 sm:p-6">
               <div>
-                <h2 className="text-2xl font-semibold text-gray-900">Документи собак</h2>
-                <p className="mt-1 text-sm text-gray-600">Перегляд та одноразове підтвердження документів учасників цього змагання.</p>
+                <h2 className="text-2xl font-semibold text-gray-900">Документи собаки — {selectedDog.dogName}</h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  {[selectedDog.dogBreed, selectedDog.userName, selectedDog.category].filter(Boolean).join(' · ')}
+                </p>
               </div>
               <button
                 type="button"
                 aria-label="Закрити"
-                onClick={() => setReviewOpen(false)}
+                onClick={() => setSelectedDog(null)}
                 className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
               >
                 <X className="w-5 h-5" />
@@ -97,32 +161,7 @@ export default function ManageCompetitionWithDocumentsPage(props: Props) {
             </div>
 
             <div className="max-h-[calc(90vh-110px)] overflow-y-auto p-5 sm:p-6">
-              {loadingDogs ? (
-                <div className="py-12 text-center text-gray-500">Завантаження...</div>
-              ) : sortedDogs.length === 0 ? (
-                <div className="py-12 text-center text-gray-500">У змаганні ще немає собак.</div>
-              ) : (
-                <div className="space-y-5">
-                  {sortedDogs.map(dog => (
-                    <section key={dog.dogId} className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900">{dog.dogName}</h3>
-                          <div className="text-sm text-gray-600">
-                            {[dog.dogBreed, dog.userName].filter(Boolean).join(' · ') || '—'}
-                          </div>
-                        </div>
-                        {dog.category && (
-                          <span className="mt-1 w-fit rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 sm:mt-0">
-                            {dog.category}
-                          </span>
-                        )}
-                      </div>
-                      <DogDocumentsReviewPanel dogId={dog.dogId} showToast={props.showToast} />
-                    </section>
-                  ))}
-                </div>
-              )}
+              <DogDocumentsReviewPanel dogId={selectedDog.dogId} showToast={props.showToast} />
             </div>
           </div>
         </div>
