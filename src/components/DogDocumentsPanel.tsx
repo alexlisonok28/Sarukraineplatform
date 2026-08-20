@@ -21,7 +21,7 @@ type Props = {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 };
 
-const ATTestationCategories = [
+const ATTESTATION_CATEGORIES = [
   'RH-FL-V', 'RH-FL-A', 'RH-FL-B',
   'RH-T-V', 'RH-T-A', 'RH-T-B',
   'RH-F-V', 'RH-F-A', 'RH-F-B',
@@ -41,8 +41,7 @@ export default function DogDocumentsPanel({ dogId, showToast }: Props) {
   const [documents, setDocuments] = useState<DogDocument[]>([]);
   const [adding, setAdding] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [documentType, setDocumentType] = useState<'pedigree' | 'attestation'>('pedigree');
-  const [category, setCategory] = useState('RH-FL-V');
+  const [documentKind, setDocumentKind] = useState('pedigree');
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState('');
 
@@ -60,8 +59,7 @@ export default function DogDocumentsPanel({ dogId, showToast }: Props) {
 
   const resetForm = () => {
     setAdding(false);
-    setDocumentType('pedigree');
-    setCategory('RH-FL-V');
+    setDocumentKind('pedigree');
     setFile(null);
     setFileError('');
   };
@@ -86,12 +84,15 @@ export default function DogDocumentsPanel({ dogId, showToast }: Props) {
       return;
     }
 
+    const isAttestation = documentKind.startsWith('attestation:');
+    const category = isAttestation ? documentKind.split(':')[1] : null;
+
     setUploading(true);
     try {
       const content = await fileToBase64(file);
       const created = await apiRequest(`/dogs/${dogId}/documents`, 'POST', {
-        documentType,
-        category: documentType === 'attestation' ? category : null,
+        documentType: isAttestation ? 'attestation' : 'pedigree',
+        category,
         name: file.name,
         contentType: file.type || 'application/octet-stream',
         content,
@@ -199,16 +200,12 @@ export default function DogDocumentsPanel({ dogId, showToast }: Props) {
             </button>
           </div>
 
-          <NativeSelect value={documentType} onChange={(e) => setDocumentType(e.target.value as 'pedigree' | 'attestation')}>
+          <NativeSelect value={documentKind} onChange={(e) => setDocumentKind(e.target.value)}>
             <option value="pedigree">Родовід</option>
-            <option value="attestation">Атестація</option>
+            {ATTESTATION_CATEGORIES.map(item => (
+              <option key={item} value={`attestation:${item}`}>Атестація {item}</option>
+            ))}
           </NativeSelect>
-
-          {documentType === 'attestation' && (
-            <NativeSelect value={category} onChange={(e) => setCategory(e.target.value)}>
-              {ATTestationCategories.map(item => <option key={item} value={item}>Атестація {item}</option>)}
-            </NativeSelect>
-          )}
 
           <div>
             <label className="flex items-center justify-center gap-2 w-full min-h-11 px-3 py-2 bg-white border border-dashed border-gray-300 rounded-lg cursor-pointer text-sm text-gray-600 hover:border-[#007AFF] hover:text-[#007AFF]">
