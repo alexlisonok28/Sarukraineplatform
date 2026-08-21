@@ -3,22 +3,11 @@
  * ------------------
  * Header — обычный React-компонент. Он получает данные через props и на их основе
  * решает, какие пункты меню показать.
- *
- * Главное здесь:
- * - isLoggedIn сообщает, вошёл ли пользователь;
- * - userProfile содержит роль пользователя;
- * - currentPage нужен для подсветки активного пункта;
- * - onPageChange — функция из App.tsx, которая переключает страницу.
- *
- * Компонент сам не загружает данные и не меняет базу: он только отображает меню.
  */
 import { PageType } from '../App';
 import { UserProfile } from '../types';
 import { Trophy, Home, Scale, Users, FileText, Medal, BarChart3, Menu, Shield } from 'lucide-react';
-import { ImageWithFallback } from './figma/ImageWithFallback';
-import logo from 'figma:asset/369da5dbacae8c0f58b86860e229dbcb695eb5fa.png';
 
-// Props — параметры, которые родительский компонент App передаёт в Header.
 type HeaderProps = {
   isLoggedIn: boolean;
   userProfile: UserProfile | null;
@@ -29,6 +18,44 @@ type HeaderProps = {
   onHomeClick: () => void;
 };
 
+/**
+ * Compact SAR Ukraine mark adapted specifically for the 40×40 header slot.
+ * Inline SVG keeps it sharp on Retina/HiDPI screens and removes the old
+ * production dependency on figma:asset, which could render as a broken image.
+ */
+const SarLogo = () => (
+  <svg
+    viewBox="0 0 160 160"
+    width="40"
+    height="40"
+    role="img"
+    aria-label="SAR Ukraine"
+    className="block w-10 h-10"
+  >
+    <rect width="160" height="160" rx="28" fill="#F8FAFC" />
+
+    {/* Forest silhouettes */}
+    <path d="M18 96 34 68l-7 2 9-16 10 18-7-2 10 17-8-2 9 15H20l8-14-7 2 8-14-6 2Z" fill="#0A376D" />
+    <path d="M36 92 54 57l-8 3 10-20 12 22-8-3 11 19-9-3 10 18H41l10-17-8 3 9-18-7 3Z" fill="#0A376D" />
+
+    {/* Dog */}
+    <path d="M55 101c7-10 14-20 20-31l10-18 4-17 12-20 5 3 2 27 11 4 15 8c6 3 9 6 10 11l-2 5-18 15c-5 4-10 5-16 4l-11-2-3 13-5 20-12 14-22-16-12-12 12-8Z" fill="#0A376D" />
+    <path d="m106 46 7-18 9 6-4 17-12-5Z" fill="#0A376D" />
+    <path d="m118 61 10 3-9 6-7-4 6-5Z" fill="#F8FAFC" />
+
+    {/* Harness */}
+    <path d="M60 92 90 109" stroke="#FFC629" strokeWidth="9" strokeLinecap="round" />
+    <path d="m88 108 18 11" stroke="#FFC629" strokeWidth="9" strokeLinecap="round" />
+
+    {/* Medical cross */}
+    <path d="M53 104h9v-9h10v9h9v10h-9v9H62v-9h-9v-10Z" fill="#FFC629" />
+
+    {/* Rubble/building */}
+    <path d="m102 122 15-15 9 7 11-12 15 14v24h-8v-11h-7v11h-25l-10-7-13 9-12-3 11-11 14-6Z" fill="#0A376D" />
+    <path d="m110 121 7-7 6 5-7 7-6-5Zm14 10 7-7 6 5-7 7-6-5Z" fill="#F8FAFC" />
+  </svg>
+);
+
 export default function Header({
   isLoggedIn,
   userProfile,
@@ -38,36 +65,24 @@ export default function Header({
   onToggleMobileMenu,
   onHomeClick,
 }: HeaderProps) {
-  /*
-   * Формируем меню динамически.
-   * React позволяет использовать обычные JS-массивы: ниже мы собираем список
-   * пунктов, а затем через .map() превращаем каждый пункт в кнопку.
-   */
   const navItems = isLoggedIn
     ? [
         { page: 'cabinet' as PageType, Icon: Home, label: 'Кабінет' },
-
-        // Административный пункт видит только пользователь с ролью admin.
         ...(userProfile?.role === 'admin'
           ? [{ page: 'admin' as PageType, Icon: Shield, label: 'Адмін' }]
           : []),
-
         { page: 'competitions' as PageType, Icon: Trophy, label: 'Змагання' },
-
-        // В текущей логике organizer не видит пункты Судді и Команди.
         ...(userProfile?.role !== 'organizer'
           ? [
               { page: 'judges' as PageType, Icon: Scale, label: 'Судді' },
               { page: 'teams' as PageType, Icon: Users, label: 'Команди' },
             ]
           : []),
-
         { page: 'documents' as PageType, Icon: FileText, label: 'Документи' },
         { page: 'results' as PageType, Icon: Medal, label: 'Результати' },
         { page: 'rating' as PageType, Icon: BarChart3, label: 'Рейтинг' },
       ]
     : [
-        // Меню для посетителя, который ещё не вошёл.
         { page: 'landing' as PageType, Icon: Home, label: 'Головна' },
         { page: 'competitions' as PageType, Icon: Trophy, label: 'Змагання' },
         { page: 'judges' as PageType, Icon: Scale, label: 'Судді' },
@@ -76,23 +91,18 @@ export default function Header({
         { page: 'results' as PageType, Icon: Medal, label: 'Результати' },
       ];
 
-  // return() описывает HTML-подобную разметку JSX, которую React покажет на странице.
   return (
     <header className="bg-white border-b border-gray-200 py-4 sticky top-0 z-[100]">
       <div className="max-w-[1400px] mx-auto px-6 flex justify-between items-center">
-        {/* Клик по логотипу возвращает на главную/в кабинет. */}
-        <div
-          className="flex items-center gap-3 cursor-pointer"
+        <button
+          type="button"
+          aria-label="На головну"
+          className="flex items-center gap-3 cursor-pointer bg-transparent border-none p-0"
           onClick={onHomeClick}
         >
-          <ImageWithFallback
-            src={logo}
-            alt="SAR Ukraine Logo"
-            className="w-10 h-10 rounded-[10px] object-cover"
-          />
-        </div>
+          <SarLogo />
+        </button>
 
-        {/* На маленьких экранах показываем кнопку открытия MobileMenu. */}
         <button
           className="md:hidden bg-none border-none text-gray-900 cursor-pointer p-2"
           onClick={onToggleMobileMenu}
@@ -100,7 +110,6 @@ export default function Header({
           <Menu className="w-6 h-6" />
         </button>
 
-        {/* На desktop каждый объект navItems превращается в кнопку меню. */}
         <nav className="hidden md:flex gap-1 items-center">
           {navItems.map((item) => (
             <button
@@ -120,7 +129,6 @@ export default function Header({
 
         <div className="hidden md:flex gap-3 items-center">
           {isLoggedIn ? (
-            // Авторизованному пользователю показываем только выход.
             <button
               className="px-6 py-[10px] bg-[#007AFF] hover:bg-[#0066CC] text-white border-none rounded-lg cursor-pointer transition-all duration-300"
               onClick={onLogout}
@@ -128,7 +136,6 @@ export default function Header({
               Вийти
             </button>
           ) : (
-            // Гостю показываем вход и регистрацию.
             <>
               <button
                 className="px-6 py-[10px] bg-[#007AFF] hover:bg-[#0066CC] text-white border-none rounded-lg cursor-pointer transition-all duration-300"
