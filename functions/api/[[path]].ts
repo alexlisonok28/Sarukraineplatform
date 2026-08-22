@@ -1,14 +1,10 @@
-import { neon } from '@neondatabase/serverless';
 import bcrypt from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
+import { sqlFor, type D1DatabaseLike } from '../_shared/db';
 
-type Env = { DATABASE_URL: string; JWT_SECRET: string };
+type Env = { DB: D1DatabaseLike; JWT_SECRET: string };
 type Ctx = { request: Request; env: Env };
 
-const sqlFor = (env: Env) => {
-  if (!env.DATABASE_URL) throw new Error('DATABASE_URL is not configured');
-  return neon(env.DATABASE_URL);
-};
 const secretFor = (env: Env) => {
   if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) throw new Error('JWT_SECRET must contain at least 32 characters');
   return new TextEncoder().encode(env.JWT_SECRET);
@@ -21,27 +17,27 @@ const ensureSchema = (env: Env) => {
   if (!schemaReady) {
     const sql = sqlFor(env);
     schemaReady = (async () => {
-      await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`;
+      await sql`PRAGMA foreign_keys = ON`;
       await sql`CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id TEXT PRIMARY KEY,
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         name TEXT NOT NULL DEFAULT '',
         role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','organizer','judge','admin')),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`;
       await sql`CREATE TABLE IF NOT EXISTS app_data (
         key TEXT PRIMARY KEY,
-        value JSONB NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`;
       await sql`CREATE TABLE IF NOT EXISTS files (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        id TEXT PRIMARY KEY,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-        content BYTEA NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        content BLOB NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`;
       await sql`CREATE INDEX IF NOT EXISTS files_owner_id_idx ON files(owner_id)`;
     })().catch(error => { schemaReady = undefined; throw error; });
@@ -51,8 +47,8 @@ const ensureSchema = (env: Env) => {
 
 const getData = async (env: Env, key: string) => (await sqlFor(env)`SELECT value FROM app_data WHERE key=${key}`)[0]?.value;
 const setData = async (env: Env, key: string, value: unknown) => {
-  await sqlFor(env)`INSERT INTO app_data(key,value) VALUES(${key},${JSON.stringify(value)}::jsonb)
-    ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=now()`;
+  await sqlFor(env)`INSERT INTO app_data(key,value) VALUES(${key},${JSON.stringify(value)})
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`;
 };
 
 async function currentUser(env: Env, authHeader: string | null) {
@@ -82,24 +78,16 @@ const canManageCompetition = (user: any, competition: any) => {
 
 const normalizeCompetitionResults = (results: any) => {
   if (!results || (results.search === undefined && results.obedience === undefined)) return results;
-
   const search = Number(results.search || 0);
   const obedience = Number(results.obedience || 0);
   const total = search + obedience;
   let qualification = 'Не класифіковано';
-
   if (search < 140 || obedience < 70 || total <= 209.5) qualification = 'Недостатньо';
   else if (total <= 239.5) qualification = 'Задовільно';
   else if (total <= 269.5) qualification = 'Добре';
   else if (total <= 285.5) qualification = 'Дуже добре';
   else if (total <= 300) qualification = 'Відмінно';
-
-  return {
-    ...results,
-    total,
-    qualification,
-    place: qualification === 'Недостатньо' || qualification === 'Не класифіковано' ? undefined : results.place
-  };
+  return { ...results, total, qualification, place: qualification === 'Недостатньо' || qualification === 'Не класифіковано' ? undefined : results.place };
 };
 
 function decodeBase64(value: string) {
@@ -126,13 +114,13 @@ export const onRequest = async ({ request, env }: Ctx) => {
     }});
 
     if (path === '/health') {
-      const rows = await sql`SELECT current_database() AS database, now() AS server_time`;
-      return json({ status: 'ok', provider: 'neon-cloudflare', ...rows[0] });
+      const rows = await sql`SELECT 'sarukraineplatform' AS database, CURRENT_TIMESTAMP AS server_time`;
+      return json({ status: 'ok', provider: 'cloudflare-d1', ...rows[0] });
     }
 
     if (path === '/init/db') {
-      const tables = await sql`SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename IN ('users','app_data','files') ORDER BY tablename`;
-      return json({ status: 'ok', provider: 'neon-cloudflare', tables: tables.map((x:any) => x.tablename) });
+      const tables = await sql`SELECT name AS tablename FROM sqlite_master WHERE type='table' AND name IN ('users','app_data','files') ORDER BY name`;
+      return json({ status: 'ok', provider: 'cloudflare-d1', tables: tables.map((x:any) => x.tablename) });
     }
 
     if (path === '/signup' && method === 'POST') {
@@ -140,12 +128,14 @@ export const onRequest = async ({ request, env }: Ctx) => {
       if (!email || String(body.password || '').length < 8) return json({ error: 'Email and password (minimum 8 characters) are required' }, 400);
       const hash = await bcrypt.hash(String(body.password), 12);
       try {
-        const rows = await sql`INSERT INTO users(email,password_hash,name) VALUES(${email},${hash},${String(body.name || '').trim()}) RETURNING id,email,name,role`;
+        const id = crypto.randomUUID();
+        const rows = await sql`INSERT INTO users(id,email,password_hash,name) VALUES(${id},${email},${hash},${String(body.name || '').trim()}) RETURNING id,email,name,role`;
         const u = rows[0];
         await setData(env, `profile:${u.id}`, { id:u.id, email:u.email, name:u.name, role:u.role, joinedAt:new Date().toISOString() });
         return json({ success:true, user:{ id:u.id, email:u.email }, session:await sessionFor(env,u) }, 201);
       } catch (e:any) {
-        return json({ error: e.code === '23505' ? 'This email is already registered' : 'Signup failed' }, e.code === '23505' ? 409 : 500);
+        const duplicate = String(e?.message || '').toLowerCase().includes('unique');
+        return json({ error: duplicate ? 'This email is already registered' : 'Signup failed' }, duplicate ? 409 : 500);
       }
     }
 
@@ -210,16 +200,9 @@ export const onRequest = async ({ request, env }: Ctx) => {
         if (!requireRole(user,roles)) return json({error:'Forbidden'},403);
         const list:any[] = await getData(env,name) || [];
         const item = name === 'competitions'
-          ? {
-              ...body,
-              id:crypto.randomUUID(),
-              organizerId:user.id,
-              organizerName:body.organizerName || user.name || user.email,
-              participants:Array.isArray(body.participants) ? body.participants : [],
-              createdAt:new Date().toISOString()
-            }
+          ? { ...body, id:crypto.randomUUID(), organizerId:user.id, organizerName:body.organizerName || user.name || user.email,
+              participants:Array.isArray(body.participants) ? body.participants : [], createdAt:new Date().toISOString() }
           : {...body,id:crypto.randomUUID(),createdAt:new Date().toISOString()};
-
         list.push(item); await setData(env,name,list); return json(item,201);
       }
       const match=path.match(new RegExp(`^/${name}/([^/]+)$`));
@@ -239,10 +222,7 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const list:any[]=await getData(env,'competitions')||[];
       const c=list.find(x=>x.id===compResults[1]);
       if(!c) return json({error:'Competition not found'},404);
-
-      const source:any[] = Array.isArray(c.participants)
-        ? c.participants
-        : (Array.isArray(c.results) ? c.results : []);
+      const source:any[] = Array.isArray(c.participants) ? c.participants : (Array.isArray(c.results) ? c.results : []);
       const participants = await Promise.all(source.map(async (p:any) => {
         const normalizedResults = normalizeCompetitionResults(p.results);
         const userRows = p.userId ? await sql`SELECT id,email,name FROM users WHERE id=${p.userId}` : [];
@@ -250,19 +230,11 @@ export const onRequest = async ({ request, env }: Ctx) => {
         const profile:any = p.userId ? (await getData(env,`profile:${p.userId}`) || {}) : {};
         const dogs:any[] = p.userId ? (await getData(env,`dogs:${p.userId}`) || []) : [];
         const dog:any = dogs.find(d => String(d.id) === String(p.dogId)) || {};
-
-        return {
-          ...p,
-          results: normalizedResults,
+        return { ...p, results: normalizedResults,
           userName: p.userName || profile.name || participantUser.name || participantUser.email || 'Невідомий учасник',
-          dogName: p.dogName || dog.name || 'Невідома собака',
-          dogBreed: p.dogBreed || dog.breed || '',
-          dogBirth: p.dogBirth || dog.birth || '',
-          category: p.category || p.class || '',
-          class: p.class || p.category || c.level || ''
-        };
+          dogName: p.dogName || dog.name || 'Невідома собака', dogBreed: p.dogBreed || dog.breed || '',
+          dogBirth: p.dogBirth || dog.birth || '', category: p.category || p.class || '', class: p.class || p.category || c.level || '' };
       }));
-
       return json({participants});
     }
 
@@ -271,20 +243,14 @@ export const onRequest = async ({ request, env }: Ctx) => {
       if(!user)return json({error:'Unauthorized'},401);
       const list:any[]=await getData(env,'competitions')||[]; const c=list.find(x=>x.id===register[1]);
       if(!c)return json({error:'Competition not found'},404);
-
       c.participants=Array.isArray(c.participants) ? c.participants : [];
       const dogId = String(body.dogId || '').trim();
       const category = String(body.category || '').trim();
       if(!dogId || !category) return json({error:'Dog and category are required'},400);
-
       const duplicate = c.participants.some((participant:any) =>
-        String(participant?.userId || '') === String(user.id) &&
-        String(participant?.dogId || '') === dogId &&
-        String(participant?.category || participant?.class || '').trim().toLowerCase() === category.toLowerCase()
-      );
-
+        String(participant?.userId || '') === String(user.id) && String(participant?.dogId || '') === dogId &&
+        String(participant?.category || participant?.class || '').trim().toLowerCase() === category.toLowerCase());
       if(duplicate) return json({error:'Ця собака вже зареєстрована в обраній категорії'},409);
-
       const p={...body,dogId,category,id:crypto.randomUUID(),userId:user.id,status:'registered',registeredAt:new Date().toISOString()};
       c.participants.push(p); await setData(env,'competitions',list); return json(p,201);
     }
@@ -294,60 +260,33 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const list:any[]=await getData(env,'competitions')||[]; const c=list.find(x=>x.id===details[1]);
       if(!c)return json({error:'Competition not found'},404);
       if(!canManageCompetition(user,c)) return json({error:'Forbidden'},403);
-
       if(method==='GET') {
         c.participants = Array.isArray(c.participants) ? c.participants : [];
         let migratedLegacyStatus = false;
-
         const enrichedParticipants = await Promise.all(c.participants.map(async (p:any) => {
-          if (p.status === 'pending') {
-            p.status = 'registered';
-            migratedLegacyStatus = true;
-          }
-
+          if (p.status === 'pending') { p.status = 'registered'; migratedLegacyStatus = true; }
           if (p.results) {
             const normalized = normalizeCompetitionResults(p.results);
-            if (JSON.stringify(normalized) !== JSON.stringify(p.results)) {
-              p.results = normalized;
-              migratedLegacyStatus = true;
-            }
+            if (JSON.stringify(normalized) !== JSON.stringify(p.results)) { p.results = normalized; migratedLegacyStatus = true; }
           }
-
           const userRows = await sql`SELECT id,email,name FROM users WHERE id=${p.userId}`;
           const participantUser:any = userRows[0] || {};
           const profile:any = await getData(env,`profile:${p.userId}`) || {};
           const dogs:any[] = await getData(env,`dogs:${p.userId}`) || [];
           const dog:any = dogs.find(d => String(d.id) === String(p.dogId)) || {};
-
-          return {
-            ...p,
-            userName: profile.name || participantUser.name || participantUser.email || 'Невідомий учасник',
-            userEmail: participantUser.email,
-            dogName: dog.name || 'Невідома собака',
-            dogBirth: dog.birth || '',
-            dogBreed: dog.breed || '',
-            dogPedigree: dog.pedigree || '',
-            dogChip: dog.chip || '',
-            dogWorkbook: dog.workbook || '',
-            category: p.category || p.class || '',
-            class: p.class || p.category || c.level || '',
-            documents: Array.isArray(p.documents) ? p.documents : []
-          };
+          return { ...p, userName: profile.name || participantUser.name || participantUser.email || 'Невідомий учасник',
+            userEmail: participantUser.email, dogName: dog.name || 'Невідома собака', dogBirth: dog.birth || '',
+            dogBreed: dog.breed || '', dogPedigree: dog.pedigree || '', dogChip: dog.chip || '', dogWorkbook: dog.workbook || '',
+            category: p.category || p.class || '', class: p.class || p.category || c.level || '', documents: Array.isArray(p.documents) ? p.documents : [] };
         }));
-
         if (migratedLegacyStatus) await setData(env,'competitions',list);
         return json({...c,participants:enrichedParticipants});
       }
-
       if(method==='PUT') {
         c.participants=c.participants||[];
         const i=c.participants.findIndex((p:any)=>body.participantId?p.id===body.participantId:p.userId===body.userId&&p.dogId===body.dogId&&p.category===body.category);
         if(i<0)return json({error:'Participant not found'},404);
-
-        const safeBody = {
-          ...body,
-          results: body.results ? normalizeCompetitionResults(body.results) : body.results
-        };
+        const safeBody = { ...body, results: body.results ? normalizeCompetitionResults(body.results) : body.results };
         c.participants[i]={...c.participants[i],...safeBody,id:c.participants[i].id,userId:c.participants[i].userId};
         await setData(env,'competitions',list); return json(c.participants[i]);
       }
@@ -358,7 +297,8 @@ export const onRequest = async ({ request, env }: Ctx) => {
       if(!body.content||!body.name)return json({error:'File content and name are required'},400);
       const bytes=decodeBase64(String(body.content));
       if(bytes.length>4*1024*1024)return json({error:'Maximum file size is 4 MB'},413);
-      const rows=await sql`INSERT INTO files(owner_id,name,content_type,content) VALUES(${user.id},${body.name},${body.contentType||'application/octet-stream'},${bytes}) RETURNING id,name`;
+      const id = crypto.randomUUID();
+      const rows=await sql`INSERT INTO files(id,owner_id,name,content_type,content) VALUES(${id},${user.id},${body.name},${body.contentType||'application/octet-stream'},${bytes}) RETURNING id,name`;
       return json({id:rows[0].id,path:rows[0].id,fileName:rows[0].name},201);
     }
 
@@ -367,33 +307,18 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const fileId = fileMatch[1];
       const documents:any[] = await getData(env,'documents') || [];
       const competitions:any[] = await getData(env,'competitions') || [];
-
       const isPublicDocumentFile = documents.some(document => String(document?.filePath || '') === fileId);
       const isCompetitionRegistrationFile = competitions.some(competition =>
         (competition?.participants || []).some((participant:any) =>
-          Array.isArray(participant?.documents) && participant.documents.some((id:any) => String(id) === fileId)
-        )
-      );
-
-      if (!user && !isPublicDocumentFile && !isCompetitionRegistrationFile) {
-        return json({error:'Unauthorized'},401);
-      }
-
+          Array.isArray(participant?.documents) && participant.documents.some((id:any) => String(id) === fileId)));
+      if (!user && !isPublicDocumentFile && !isCompetitionRegistrationFile) return json({error:'Unauthorized'},401);
       const rows=await sql`SELECT name,content_type,content FROM files WHERE id=${fileId}`;
       if(!rows[0])return json({error:'File not found'},404);
-
       const raw:any=rows[0].content;
       const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
       const safeFileName = String(rows[0].name).replace(/[\r\n"]/g,'');
       const disposition = isCompetitionRegistrationFile && !isPublicDocumentFile ? 'inline' : 'attachment';
-
-      return new Response(bytes,{
-        status:200,
-        headers:{
-          'Content-Type':rows[0].content_type,
-          'Content-Disposition':`${disposition}; filename="${safeFileName}"`
-        }
-      });
+      return new Response(bytes,{status:200,headers:{'Content-Type':rows[0].content_type,'Content-Disposition':`${disposition}; filename="${safeFileName}"`}});
     }
 
     const documentDownload=path.match(/^\/documents\/([^/]+)\/download$/);

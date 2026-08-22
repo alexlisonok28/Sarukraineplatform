@@ -1,5 +1,5 @@
-import { neon } from '@neondatabase/serverless';
 import { jwtVerify } from 'jose';
+import { sqlFor, type D1DatabaseLike } from './db';
 
 export type R2ObjectBodyLike = {
   body: ReadableStream;
@@ -13,15 +13,12 @@ export type R2BucketLike = {
 };
 
 export type StorageEnv = {
-  DATABASE_URL: string;
+  DB: D1DatabaseLike;
   JWT_SECRET: string;
   DOCUMENTS_BUCKET: R2BucketLike;
 };
 
-export const sqlFor = (env: StorageEnv) => {
-  if (!env.DATABASE_URL) throw new Error('DATABASE_URL is not configured');
-  return neon(env.DATABASE_URL);
-};
+export { sqlFor };
 
 const secretFor = (env: StorageEnv) => {
   if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) throw new Error('JWT_SECRET must contain at least 32 characters');
@@ -43,44 +40,42 @@ export async function currentUser(env: StorageEnv, authHeader: string | null) {
   }
 }
 
+let storageSchemaReady: Promise<void> | undefined;
 export async function ensureStorageSchema(env: StorageEnv) {
   if (!env.DOCUMENTS_BUCKET) throw new Error('DOCUMENTS_BUCKET R2 binding is not configured');
-  const sql = sqlFor(env);
+  if (!storageSchemaReady) {
+    const sql = sqlFor(env);
+    storageSchemaReady = (async () => {
+      await sql`PRAGMA foreign_keys = ON`;
+      await sql`CREATE TABLE IF NOT EXISTS stored_files (
+        id TEXT PRIMARY KEY,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        storage_key TEXT NOT NULL UNIQUE,
+        original_name TEXT NOT NULL,
+        content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+        file_size INTEGER NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'generic',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stored_files_owner_id_idx ON stored_files(owner_id)`;
 
-  await sql`CREATE TABLE IF NOT EXISTS stored_files (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    storage_key TEXT NOT NULL UNIQUE,
-    original_name TEXT NOT NULL,
-    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-    file_size INTEGER NOT NULL,
-    scope TEXT NOT NULL DEFAULT 'generic',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-  )`;
-
-  await sql`CREATE INDEX IF NOT EXISTS stored_files_owner_id_idx ON stored_files(owner_id)`;
-
-  await sql`CREATE TABLE IF NOT EXISTS dog_documents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    dog_id TEXT NOT NULL,
-    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    document_type TEXT NOT NULL CHECK (document_type IN ('pedigree','attestation')),
-    category TEXT,
-    file_id UUID NOT NULL REFERENCES stored_files(id) ON DELETE CASCADE,
-    is_checked BOOLEAN NOT NULL DEFAULT false,
-    checked_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    checked_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-  )`;
-
-  // Existing installations may already have dog_documents from the first R2 release.
-  // ADD COLUMN IF NOT EXISTS upgrades them in place without a manual migration.
-  await sql`ALTER TABLE dog_documents ADD COLUMN IF NOT EXISTS is_checked BOOLEAN NOT NULL DEFAULT false`;
-  await sql`ALTER TABLE dog_documents ADD COLUMN IF NOT EXISTS checked_by UUID REFERENCES users(id) ON DELETE SET NULL`;
-  await sql`ALTER TABLE dog_documents ADD COLUMN IF NOT EXISTS checked_at TIMESTAMPTZ`;
-
-  await sql`CREATE INDEX IF NOT EXISTS dog_documents_dog_id_idx ON dog_documents(dog_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS dog_documents_owner_id_idx ON dog_documents(owner_id)`;
+      await sql`CREATE TABLE IF NOT EXISTS dog_documents (
+        id TEXT PRIMARY KEY,
+        dog_id TEXT NOT NULL,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        document_type TEXT NOT NULL CHECK (document_type IN ('pedigree','attestation')),
+        category TEXT,
+        file_id TEXT NOT NULL REFERENCES stored_files(id) ON DELETE CASCADE,
+        is_checked INTEGER NOT NULL DEFAULT 0,
+        checked_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        checked_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS dog_documents_dog_id_idx ON dog_documents(dog_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS dog_documents_owner_id_idx ON dog_documents(owner_id)`;
+    })().catch(error => { storageSchemaReady = undefined; throw error; });
+  }
+  return storageSchemaReady;
 }
 
 export function decodeBase64(value: string) {
@@ -105,11 +100,6 @@ export async function userOwnsDog(env: StorageEnv, userId: string, dogId: string
   return dogs.some(dog => String(dog?.id) === String(dogId));
 }
 
-/**
- * Admin may review every dog document.
- * Organizer may review documents only for a dog registered in one of their
- * competitions that is still manageable. Completed competitions stay read-only.
- */
 export async function canReviewDogDocuments(env: StorageEnv, user: any, dogId: string) {
   if (!user) return false;
   if (user.role === 'admin') return true;
