@@ -47,9 +47,6 @@ export async function apiRequest(endpoint: string, method = 'GET', body?: unknow
    * Раньше заголовок добавлялся даже для DELETE без body. На сервере наличие этого
    * заголовка означало «нужно вызвать request.json()». В результате пустой DELETE-запрос
    * пытались разобрать как JSON и он падал до выполнения самого удаления.
-   *
-   * Поэтому DELETE /documents/:id (и потенциально другие удаления) возвращал ошибку,
-   * хотя endpoint и права пользователя были корректными.
    */
   if (body !== undefined && !(body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
@@ -64,8 +61,14 @@ export async function apiRequest(endpoint: string, method = 'GET', body?: unknow
     body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
   });
 
+  // Если backend отверг JWT, локальную сессию больше нельзя считать валидной.
+  // Удаляем её сразу, чтобы приложение не пыталось бесконечно «обновлять» тот же
+  // самый невалидный токен и могло корректно вернуть пользователя на Login.
+  if (response.status === 401 && endpoint !== '/login') {
+    await auth.signOut({ scope: 'local' });
+  }
+
   // Любой HTTP-ответ 4xx/5xx превращаем в обычную JS-ошибку.
-  // Благодаря этому страницы могут использовать try/catch и показывать toast.
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.error || `Request failed with status ${response.status}`);
