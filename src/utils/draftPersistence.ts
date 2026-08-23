@@ -8,7 +8,8 @@ const PREFIX = 'sar-draft:';
 
 const isEligible = (element: Element): element is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement => {
   if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
-  if (element.hasAttribute('data-no-draft') || element.disabled || element.readOnly) return false;
+  const readOnly = 'readOnly' in element ? Boolean(element.readOnly) : false;
+  if (element.hasAttribute('data-no-draft') || element.disabled || readOnly) return false;
   if (element instanceof HTMLInputElement && ['password', 'file', 'hidden', 'submit', 'button'].includes(element.type)) return false;
   return true;
 };
@@ -17,7 +18,9 @@ const fields = () => Array.from(document.querySelectorAll('input, textarea, sele
 
 const fieldKey = (element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, index: number) => {
   const explicit = element.getAttribute('data-draft-key') || element.name || element.id || element.getAttribute('aria-label') || element.getAttribute('placeholder');
-  return explicit ? `${element.tagName}:${explicit}` : `${element.tagName}:index:${index}`;
+  // Keep the DOM index even when a name exists so radio groups/repeated rows do not
+  // overwrite each other. The page/entity itself is already isolated by scope.
+  return explicit ? `${element.tagName}:${explicit}:index:${index}` : `${element.tagName}:index:${index}`;
 };
 
 const storageKey = (scope: string) => `${PREFIX}${scope}`;
@@ -92,7 +95,7 @@ export function bindDraftPersistence(scope: string) {
   };
 
   const onFieldChange = (event: Event) => {
-    if (restoring || !isEligible(event.target as Element)) return;
+    if (restoring || !(event.target instanceof Element) || !isEligible(event.target)) return;
     writeDraft(scope);
   };
 
