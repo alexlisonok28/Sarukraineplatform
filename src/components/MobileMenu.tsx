@@ -27,9 +27,7 @@ export default function MobileMenu({
         ...(userProfile?.role === 'admin' ? [{ page: 'admin' as PageType, Icon: Shield, label: 'Адмін' }] : []),
         { page: 'competitions' as PageType, Icon: Trophy, label: 'Змагання' },
         { page: 'judges' as PageType, Icon: Scale, label: 'Судді' },
-        ...(userProfile?.role !== 'organizer' ? [
-          { page: 'teams' as PageType, Icon: Users, label: 'Команди' }
-        ] : []),
+        { page: 'teams' as PageType, Icon: Users, label: 'Команди' },
         { page: 'documents' as PageType, Icon: FileText, label: 'Документи' },
         { page: 'results' as PageType, Icon: Medal, label: 'Результати' },
         { page: 'rating' as PageType, Icon: BarChart3, label: 'Рейтинг' },
