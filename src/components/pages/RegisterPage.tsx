@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { PageType, Toast } from '../../App';
-import { auth } from '../../utils/auth';
 import { apiRequest } from '../../utils/api';
 
 type RegisterPageProps = {
@@ -20,46 +19,29 @@ export default function RegisterPage({ onPageChange, showToast }: RegisterPagePr
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (password !== confirmPassword) {
-        showToast?.('Паролі не співпадають', 'error');
-        return;
+      showToast?.('Паролі не співпадають', 'error');
+      return;
     }
 
     setLoading(true);
-    
-    console.log('[RegisterPage] Creating user via server:', email);
-    
-    try {
-        // Use server endpoint to create user with auto-confirm
-        const result = await apiRequest('/signup', 'POST', {
-            email,
-            password,
-            name
-        });
 
-        console.log('[RegisterPage] ✓ User created:', result);
-        showToast?.('Реєстрація успішна! Тепер увійдіть в систему.', 'success');
-        
-        // Auto-login after signup
-        const { error: loginError } = await auth.signInWithPassword({
-            email,
-            password
-        });
-        
-        if (!loginError) {
-            console.log('[RegisterPage] ✓ Auto-login successful');
-            onPageChange('cabinet');
-        } else {
-            console.warn('[RegisterPage] Auto-login failed:', loginError);
-            onPageChange('login');
-        }
+    try {
+      await apiRequest('/signup', 'POST', {
+        email,
+        password,
+        name,
+      });
+
+      showToast?.('Реєстрація успішна. Перевірте пошту та підтвердіть email.', 'success');
+      onPageChange('login');
     } catch (error: any) {
-        console.error('[RegisterPage] Registration error:', error);
-        showToast?.(error.message || 'Помилка реєстрації', 'error');
+      console.error('[RegisterPage] Registration error:', error);
+      showToast?.(error.message || 'Помилка реєстрації', 'error');
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   return (
