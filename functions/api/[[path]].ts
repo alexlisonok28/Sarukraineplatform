@@ -222,7 +222,9 @@ export const onRequest = async ({ request, env }: Ctx) => {
       const list:any[]=await getData(env,'competitions')||[];
       const c=list.find(x=>x.id===compResults[1]);
       if(!c) return json({error:'Competition not found'},404);
-      const source:any[] = Array.isArray(c.participants) ? c.participants : (Array.isArray(c.results) ? c.results : []);
+      // Participant results are the only authoritative result source.
+      // Legacy competition.results may still exist in old D1 JSON but is deliberately ignored.
+      const source:any[] = Array.isArray(c.participants) ? c.participants : [];
       const participants = await Promise.all(source.map(async (p:any) => {
         const normalizedResults = normalizeCompetitionResults(p.results);
         const userRows = p.userId ? await sql`SELECT id,email,name FROM users WHERE id=${p.userId}` : [];
@@ -329,10 +331,8 @@ export const onRequest = async ({ request, env }: Ctx) => {
       return json({url:`/api/files/${document.filePath}`});
     }
 
-    if(path==='/rating'&&method==='GET') {
-      const comps:any[]=await getData(env,'competitions')||[];
-      return json(comps.flatMap(c=>(c.results||[]).map((r:any)=>({...r,results:normalizeCompetitionResults(r.results)}))));
-    }
+    // /api/rating has its own route (functions/api/rating.ts) and derives the
+    // rating from competition.participants[].results. Keep only the debug helper here.
     if(path==='/rating/debug'&&method==='GET') return json({competitions:(await getData(env,'competitions')||[]).length});
     if(path==='/admin/users'&&method==='GET') {
       if(!requireRole(user,['admin']))return json({error:'Forbidden'},403);
