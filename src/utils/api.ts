@@ -1,58 +1,44 @@
 /*
  * API-КЛИЕНТ ФРОНТЕНДА
  * -------------------
- * Этот файл — единая точка, через которую React-компоненты обращаются к серверу.
- * Вместо того чтобы в каждой странице писать fetch(), используется apiRequest().
- *
- * Важно для понимания:
- * - endpoint — часть адреса API, например '/judges' или '/profile';
- * - method — HTTP-метод: GET, POST, PUT, DELETE;
- * - body — данные, которые отправляем серверу;
- * - token — JWT-токен авторизованного пользователя.
- *
- * Если endpoint приватный, функция сама попробует взять JWT из текущей сессии.
+ * Единая точка, через которую React-компоненты обращаются к backend.
  */
 import { auth } from './auth';
 
-// Базовый адрес API. В production обычно используется '/api'.
-// VITE_API_URL позволяет при необходимости подменить адрес через переменную окружения.
 export const API_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
-// Эти GET-запросы доступны без входа в систему.
 const PUBLIC_GET = ['/competitions', '/judges', '/teams', '/documents', '/rating'];
-
-// Определяем, можно ли вызвать endpoint без JWT-токена.
 const isPublicEndpoint = (endpoint: string, method: string) =>
   (method === 'GET' && (PUBLIC_GET.includes(endpoint.split('?')[0]) || /^\/competitions\/[^/]+\/results$/.test(endpoint))) ||
   (method === 'POST' && ['/signup', '/login'].includes(endpoint));
 
-/**
- * Универсальный запрос к backend API.
+type QueuedParticipantSave = {
+  body: any;
+  token?: string;
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
+};
+
+/*
+ * ManageCompetitionPage исторически вызывает один PUT на каждого участника через
+ * Promise.all(). Когда competitions хранится одним JSON-документом, параллельные
+ * запросы могут прочитать одну старую версию и затем перезаписать изменения друг
+ * друга. Поэтому синхронные PUT одного соревнования собираются за один event-loop
+ * tick и отправляются backend одним batch-запросом.
  *
- * Пример:
- *   const judges = await apiRequest('/judges');
- *   await apiRequest('/judges', 'POST', { name: '...' });
+ * Для остальных компонентов apiRequest остаётся полностью совместимым: каждый
+ * исходный Promise завершается только после подтверждения единственной записи D1.
  */
-export async function apiRequest(endpoint: string, method = 'GET', body?: unknown, token?: string) {
-  // Для приватного запроса автоматически подставляем JWT текущего пользователя.
+const participantSaveQueues = new Map<string, QueuedParticipantSave[]>();
+const participantFlushTimers = new Map<string, number>();
+
+async function rawApiRequest(endpoint: string, method = 'GET', body?: unknown, token?: string) {
   if (!token && !isPublicEndpoint(endpoint, method)) {
     token = (await auth.getSession()).data.session?.access_token;
   }
 
   const headers: Record<string, string> = {};
-
-  /*
-   * Content-Type: application/json ставим ТОЛЬКО если действительно отправляем JSON-тело.
-   *
-   * Раньше заголовок добавлялся даже для DELETE без body. На сервере наличие этого
-   * заголовка означало «нужно вызвать request.json()». В результате пустой DELETE-запрос
-   * пытались разобрать как JSON и он падал до выполнения самого удаления.
-   */
-  if (body !== undefined && !(body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
-  }
-
-  // Bearer-токен сообщает серверу, от имени какого пользователя выполняется запрос.
+  if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const response = await fetch(`${API_URL}${endpoint}`, {
@@ -61,19 +47,62 @@ export async function apiRequest(endpoint: string, method = 'GET', body?: unknow
     body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
   });
 
-  // Если backend отверг JWT, локальную сессию больше нельзя считать валидной.
-  // Удаляем её сразу, чтобы приложение не пыталось бесконечно «обновлять» тот же
-  // самый невалидный токен и могло корректно вернуть пользователя на Login.
   if (response.status === 401 && endpoint !== '/login') {
     await auth.signOut({ scope: 'local' });
   }
 
-  // Любой HTTP-ответ 4xx/5xx превращаем в обычную JS-ошибку.
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.error || `Request failed with status ${response.status}`);
   }
 
-  // Все обычные API-ответы проекта возвращаются в JSON.
   return response.json();
+}
+
+function queueParticipantSave(competitionId: string, body: any, token?: string) {
+  return new Promise((resolve, reject) => {
+    const queue = participantSaveQueues.get(competitionId) || [];
+    queue.push({ body, token, resolve, reject });
+    participantSaveQueues.set(competitionId, queue);
+
+    if (participantFlushTimers.has(competitionId)) return;
+
+    const timer = window.setTimeout(async () => {
+      participantFlushTimers.delete(competitionId);
+      const batch = participantSaveQueues.get(competitionId) || [];
+      participantSaveQueues.delete(competitionId);
+      if (!batch.length) return;
+
+      try {
+        const response = await rawApiRequest(
+          `/competitions/${encodeURIComponent(competitionId)}/participants/batch`,
+          'PUT',
+          { participants: batch.map(item => item.body) },
+          batch.find(item => item.token)?.token,
+        );
+
+        if (!response?.success || Number(response.savedCount) !== batch.length) {
+          throw new Error('Backend did not confirm all participant changes');
+        }
+
+        const saved = Array.isArray(response.participants) ? response.participants : [];
+        batch.forEach((item, index) => item.resolve(saved[index] ?? { success: true }));
+      } catch (error) {
+        // Every Promise from the original Promise.all rejects. ManageCompetitionPage
+        // therefore keeps the entered values and shows an error instead of success.
+        batch.forEach(item => item.reject(error));
+      }
+    }, 0);
+
+    participantFlushTimers.set(competitionId, timer);
+  });
+}
+
+export async function apiRequest(endpoint: string, method = 'GET', body?: unknown, token?: string) {
+  const participantMatch = endpoint.match(/^\/competitions\/([^/]+)\/participants$/);
+  if (method === 'PUT' && participantMatch && body && !(body instanceof FormData)) {
+    return queueParticipantSave(decodeURIComponent(participantMatch[1]), body, token);
+  }
+
+  return rawApiRequest(endpoint, method, body, token);
 }
