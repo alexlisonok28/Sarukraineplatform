@@ -32,7 +32,6 @@ const PROTECTED_PAGES = new Set<PageType>(['cabinet', 'rating', 'admin', 'manage
 function routeFromLocation(): RouteState {
   const params = new URLSearchParams(window.location.search);
   if (params.get('resetToken')) return { page: 'reset-password' };
-
   const requested = params.get('page') as PageType | null;
   const page = requested && VALID_PAGES.has(requested) ? requested : 'landing';
   if (page === 'manage-competition') {
@@ -51,9 +50,7 @@ function urlForRoute(page: PageType, param?: string) {
 
 function ensureHistoryState() {
   const state = window.history.state;
-  if (!state?.sarRoute) {
-    window.history.replaceState({ ...(state || {}), sarRoute: true, sarIndex: 0 }, '', window.location.href);
-  }
+  if (!state?.sarRoute) window.history.replaceState({ ...(state || {}), sarRoute: true, sarIndex: 0 }, '', window.location.href);
 }
 
 export default function App() {
@@ -117,18 +114,9 @@ export default function App() {
     } catch (e: any) {
       console.error('Profile fetch error:', e);
       if (e.message && (e.message.includes('401') || e.message.includes('Unauthorized'))) {
-        try {
-          const { data: { session }, error } = await auth.refreshSession();
-          if (!session || error) {
-            await auth.signOut({ scope: 'local' });
-            setIsLoggedIn(false);
-            setUserProfile(null);
-          } else setTimeout(() => fetchProfile(session.access_token), 500);
-        } catch {
-          await auth.signOut({ scope: 'local' });
-          setIsLoggedIn(false);
-          setUserProfile(null);
-        }
+        await auth.signOut({ scope: 'local' });
+        setIsLoggedIn(false);
+        setUserProfile(null);
       } else if (e.message && e.message.includes('503')) setTimeout(() => fetchProfile(token), 2000);
       return null;
     }
@@ -158,13 +146,17 @@ export default function App() {
         const profile = await fetchProfile(session.access_token);
         if (isCancelled) return;
 
-        if (!canAccessRoute(route, profile)) {
-          applyRoute({ page: 'competitions' }, 'replace');
-        } else {
-          // Important: do not force authenticated users to Cabinet on refresh.
-          // Restore exactly the route encoded in the current URL.
-          applyRoute(route, 'none');
+        if (!profile) {
+          setIsLoggedIn(false);
+          if (PROTECTED_PAGES.has(route.page)) {
+            rememberReturnTo(route);
+            applyRoute({ page: 'login' }, 'replace');
+          } else applyRoute(route, 'none');
+          return;
         }
+
+        if (!canAccessRoute(route, profile)) applyRoute({ page: 'competitions' }, 'replace');
+        else applyRoute(route, 'none');
       } catch (err) {
         console.error('[App] Unexpected auth initialization error:', err);
         await auth.signOut({ scope: 'local' });
@@ -186,7 +178,14 @@ export default function App() {
     const { data: { subscription } } = auth.onAuthStateChange((_event, session) => {
       setIsLoggedIn(!!session);
       if (session?.access_token) fetchProfile(session.access_token);
-      else setUserProfile(null);
+      else {
+        setUserProfile(null);
+        const route = routeFromLocation();
+        if (authInitialized && PROTECTED_PAGES.has(route.page)) {
+          rememberReturnTo(route);
+          applyRoute({ page: 'login' }, 'replace');
+        }
+      }
     });
     return () => { isCancelled = true; subscription.unsubscribe(); };
   }, []);
@@ -235,7 +234,6 @@ export default function App() {
       showToast('Доступ заборонено', 'error');
       return;
     }
-
     const sameRoute = currentPage === page && (page !== 'manage-competition' || selectedCompetitionId === (param || null));
     applyRoute(requested, sameRoute ? 'replace' : 'push');
     window.scrollTo({ top: 0, behavior: 'smooth' });
