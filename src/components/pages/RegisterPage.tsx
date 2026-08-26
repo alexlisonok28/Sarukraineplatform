@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { PageType, Toast } from '../../App';
 import { apiRequest } from '../../utils/api';
 import { localizeApiError } from '../../utils/errors';
@@ -19,6 +20,8 @@ export default function RegisterPage({ onPageChange, showToast }: RegisterPagePr
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<RegisterErrors>({});
 
@@ -80,13 +83,23 @@ export default function RegisterPage({ onPageChange, showToast }: RegisterPagePr
 
           <div className="mb-5">
             <label className="block text-sm text-gray-900 mb-2 font-medium">Пароль</label>
-            <input type="password" className={inputClassName(!!errors.password)} placeholder="••••••••" value={password} aria-invalid={!!errors.password} onChange={e => { setPassword(e.target.value); clearError('password'); }} />
+            <div className="relative">
+              <input type={showPassword ? 'text' : 'password'} className={`${inputClassName(!!errors.password)} pr-12`} placeholder="••••••••" value={password} aria-invalid={!!errors.password} onChange={e => { setPassword(e.target.value); clearError('password'); }} />
+              <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-0 top-0 h-full w-12 flex items-center justify-center bg-transparent border-0 text-gray-500 hover:text-gray-700 cursor-pointer" aria-label={showPassword ? 'Приховати пароль' : 'Показати пароль'}>
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
             {errors.password && <p className="mt-2 text-sm text-red-600">{errors.password}</p>}
           </div>
 
           <div className="mb-5">
             <label className="block text-sm text-gray-900 mb-2 font-medium">Підтвердження паролю</label>
-            <input type="password" className={inputClassName(!!errors.confirmPassword)} placeholder="••••••••" value={confirmPassword} aria-invalid={!!errors.confirmPassword} onChange={e => { setConfirmPassword(e.target.value); clearError('confirmPassword'); }} />
+            <div className="relative">
+              <input type={showConfirmPassword ? 'text' : 'password'} className={`${inputClassName(!!errors.confirmPassword)} pr-12`} placeholder="••••••••" value={confirmPassword} aria-invalid={!!errors.confirmPassword} onChange={e => { setConfirmPassword(e.target.value); clearError('confirmPassword'); }} />
+              <button type="button" onClick={() => setShowConfirmPassword(v => !v)} className="absolute right-0 top-0 h-full w-12 flex items-center justify-center bg-transparent border-0 text-gray-500 hover:text-gray-700 cursor-pointer" aria-label={showConfirmPassword ? 'Приховати підтвердження паролю' : 'Показати підтвердження паролю'}>
+                {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
             {errors.confirmPassword && <p className="mt-2 text-sm text-red-600">{errors.confirmPassword}</p>}
           </div>
 
