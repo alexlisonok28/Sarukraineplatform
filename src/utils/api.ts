@@ -4,6 +4,7 @@
  * Единая точка, через которую React-компоненты обращаются к backend.
  */
 import { auth } from './auth';
+import { localizeApiError } from './errors';
 
 export const API_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
@@ -47,13 +48,16 @@ async function rawApiRequest(endpoint: string, method = 'GET', body?: unknown, t
     body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
   });
 
+  const payload = response.ok ? null : await response.json().catch(() => ({}));
+
   if (response.status === 401 && endpoint !== '/login') {
+    window.dispatchEvent(new CustomEvent('sar:auth-required', { detail: { reason: 'expired' } }));
     await auth.signOut({ scope: 'local' });
   }
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error || `Request failed with status ${response.status}`);
+    const rawMessage = payload?.error || `Request failed with status ${response.status}`;
+    throw new Error(localizeApiError(rawMessage, response.status));
   }
 
   return response.json();
@@ -82,7 +86,7 @@ function queueParticipantSave(competitionId: string, body: any, token?: string) 
         );
 
         if (!response?.success || Number(response.savedCount) !== batch.length) {
-          throw new Error('Backend did not confirm all participant changes');
+          throw new Error(localizeApiError('Backend did not confirm all participant changes'));
         }
 
         const saved = Array.isArray(response.participants) ? response.participants : [];
