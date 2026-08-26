@@ -18,6 +18,7 @@ import ManageCompetitionPage from './components/pages/ManageCompetitionWithDocum
 import ToastContainer from './components/ToastContainer';
 import { auth } from './utils/auth';
 import { apiRequest } from './utils/api';
+import { AUTH_REQUIRED_MESSAGE } from './utils/errors';
 import { bindDraftPersistence } from './utils/draftPersistence';
 import { UserProfile } from './types';
 
@@ -113,7 +114,7 @@ export default function App() {
       return resolved;
     } catch (e: any) {
       console.error('Profile fetch error:', e);
-      if (e.message && (e.message.includes('401') || e.message.includes('Unauthorized'))) {
+      if (e.message && (e.message.includes('401') || e.message.includes('Unauthorized') || e.message.includes(AUTH_REQUIRED_MESSAGE))) {
         await auth.signOut({ scope: 'local' });
         setIsLoggedIn(false);
         setUserProfile(null);
@@ -226,7 +227,7 @@ export default function App() {
     const requested: RouteState = { page, param };
     if (PROTECTED_PAGES.has(page) && !isLoggedIn) {
       rememberReturnTo(requested);
-      showToast('Увійдіть, щоб переглянути цю сторінку', 'info');
+      showToast(AUTH_REQUIRED_MESSAGE, 'info');
       applyRoute({ page: 'login' }, 'push');
       return;
     }
