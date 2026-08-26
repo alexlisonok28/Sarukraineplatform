@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Toast } from '../App';
+import { SESSION_EXPIRED_MESSAGE } from '../utils/errors';
 import { CheckCircle2, XCircle, TriangleAlert, Info, X } from 'lucide-react';
 
 type ToastContainerProps = {
@@ -7,6 +9,18 @@ type ToastContainerProps = {
 };
 
 export default function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
+  const [systemToasts, setSystemToasts] = useState<Toast[]>([]);
+
+  useEffect(() => {
+    const handleAuthRequired = () => {
+      const id = `auth-${Date.now()}`;
+      setSystemToasts(prev => [...prev.filter(item => !item.id.startsWith('auth-')), { id, message: SESSION_EXPIRED_MESSAGE, type: 'warning' }]);
+      window.setTimeout(() => setSystemToasts(prev => prev.filter(item => item.id !== id)), 4000);
+    };
+    window.addEventListener('sar:auth-required', handleAuthRequired);
+    return () => window.removeEventListener('sar:auth-required', handleAuthRequired);
+  }, []);
+
   const iconComponents = {
     success: CheckCircle2,
     error: XCircle,
@@ -21,13 +35,16 @@ export default function ToastContainer({ toasts, onRemove }: ToastContainerProps
     info: 'bg-blue-50 border-blue-300 text-blue-800',
   };
 
+  const visibleToasts = [...toasts, ...systemToasts];
+
   return (
     <div
       className="flex flex-col gap-3 items-end"
       style={{ position: 'fixed', right: 20, bottom: 20, top: 'auto', left: 'auto', zIndex: 1000, maxWidth: 'calc(100vw - 40px)' }}
     >
-      {toasts.map((toast) => {
+      {visibleToasts.map((toast) => {
         const IconComponent = iconComponents[toast.type];
+        const isSystemToast = toast.id.startsWith('auth-');
         return (
           <div
             key={toast.id}
@@ -37,7 +54,7 @@ export default function ToastContainer({ toasts, onRemove }: ToastContainerProps
             <span className="flex-1 font-medium">{toast.message}</span>
             <button
               className="bg-none border-none text-current opacity-60 cursor-pointer p-0 w-6 h-6 flex items-center justify-center flex-shrink-0 hover:opacity-100 transition-opacity"
-              onClick={() => onRemove(toast.id)}
+              onClick={() => isSystemToast ? setSystemToasts(prev => prev.filter(item => item.id !== toast.id)) : onRemove(toast.id)}
               aria-label="Закрити повідомлення"
             >
               <X className="w-4 h-4" />
