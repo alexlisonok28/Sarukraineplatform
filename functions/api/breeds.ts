@@ -12,33 +12,35 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 async function ensureBreeds(env: Env) {
   const sql = sqlFor(env);
 
-  // Keep the reference table intentionally small: only stable ID + displayed name.
-  // If an older deployment already created extra FCI columns, SQLite keeps them;
-  // this API deliberately ignores them and uses only id/name.
+  // Reference data intentionally contains only ID + displayed breed name.
+  // Older deployments may physically retain now-unused FCI columns; they are ignored.
   await sql`CREATE TABLE IF NOT EXISTS breeds (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
   )`;
   await sql`CREATE INDEX IF NOT EXISTS breeds_name_idx ON breeds(name)`;
 
-  const countRows = await sql`SELECT COUNT(*) AS count FROM breeds`;
-  const existingCount = Number(countRows[0]?.count || 0);
-  if (existingCount > 0) return;
-
   const names = await getBreedNames();
   if (!names.length) throw new Error('Breed seed is empty');
 
-  // One D1 statement seeds the whole dictionary, avoiding hundreds of round trips.
-  // IDs follow the already-normalized Ukrainian alphabetical order. The final item
-  // is intentionally БЕЗПОРОДНИЙ.
-  const placeholders = names.map(() => '(?, ?)').join(', ');
-  const values: Array<number | string> = [];
-  names.forEach((name, index) => values.push(index + 1, name));
+  const countRows = await sql`SELECT COUNT(*) AS count FROM breeds`;
+  const existingCount = Number(countRows[0]?.count || 0);
+  if (existingCount >= names.length) return;
 
-  await env.DB
-    .prepare(`INSERT INTO breeds (id, name) VALUES ${placeholders}`)
-    .bind(...values)
-    .all();
+  // Keep every statement comfortably below D1/SQLite bind-variable limits.
+  // INSERT OR IGNORE also makes interrupted first-time seeding safely resumable.
+  const chunkSize = 40;
+  for (let offset = 0; offset < names.length; offset += chunkSize) {
+    const chunk = names.slice(offset, offset + chunkSize);
+    const placeholders = chunk.map(() => '(?, ?)').join(', ');
+    const values: Array<number | string> = [];
+    chunk.forEach((name, index) => values.push(offset + index + 1, name));
+
+    await env.DB
+      .prepare(`INSERT OR IGNORE INTO breeds (id, name) VALUES ${placeholders}`)
+      .bind(...values)
+      .all();
+  }
 }
 
 export const onRequestGet = async ({ env }: Ctx) => {
