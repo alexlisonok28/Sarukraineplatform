@@ -23,6 +23,8 @@ type CompetitionsPageProps = {
   showToast: (msg: string, type: any) => void;
 };
 
+const MAX_REGISTER_FILE_SIZE = 4 * 1024 * 1024;
+
 const getStatusConfig = (status: string) => {
   const configs: Record<string, { label: string; color: string }> = {
     'planned': { label: 'Реєстрація скоро відкриється', color: 'bg-gray-100 text-gray-700' },
@@ -68,6 +70,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
   const [compToDelete, setCompToDelete] = useState<string | null>(null);
 
   const isOrganizer = userProfile?.role === 'organizer' || userProfile?.role === 'admin';
+  const hasInvalidRegisterFiles = registerFiles.some(file => file.size > MAX_REGISTER_FILE_SIZE);
 
   useEffect(() => {
     fetchCompetitions();
@@ -76,9 +79,6 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
   const fetchCompetitions = async () => {
     try {
       const data = await apiRequest('/competitions');
-      // Адміністратор бачить усі змагання.
-      // Організатор бачить власні завершені змагання, але вони переходять у read-only режим.
-      // Для звичайного користувача завершені події залишаються тільки в «Результати».
       setCompetitions(data.filter((comp: Competition) => shouldShowCompetition(comp, userProfile)));
     } catch (e) {
       console.error(e);
@@ -96,9 +96,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
          showToast('Змагання оновлено!', 'success');
       } else {
          const newComp = await apiRequest('/competitions', 'POST', data);
-         if (shouldShowCompetition(newComp, userProfile)) {
-             setCompetitions(current => [...current, newComp]);
-         }
+         if (shouldShowCompetition(newComp, userProfile)) setCompetitions(current => [...current, newComp]);
          showToast('Змагання створено!', 'success');
       }
       setIsModalOpen(false);
@@ -130,12 +128,10 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
   const handleStatusChange = async (compId: string, newStatus: string) => {
       try {
           await apiRequest(`/competitions/${compId}`, 'PUT', { status: newStatus });
-
           setCompetitions(current => current
               .map(c => c.id === compId ? { ...c, status: newStatus as Competition['status'] } : c)
               .filter(c => shouldShowCompetition(c, userProfile))
           );
-
           showToast('Статус оновлено', 'success');
       } catch (e) {
           showToast('Помилка зміни статусу', 'error');
@@ -144,7 +140,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
 
   const openRegister = async (compId: string) => {
       if (!isLoggedIn) {
-          showToast('Спочатку увійдіть', 'info');
+          showToast('Для виконання цієї дії необхідно увійти в систему', 'info');
           return;
       }
       if (userProfile?.role === 'organizer') return;
@@ -173,6 +169,11 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
           return;
       }
 
+      // File-size errors are shown inline next to each offending file. Do not start
+      // upload while such files remain in the list, otherwise the backend would
+      // return a generic 4 MB error that cannot identify the problematic file.
+      if (hasInvalidRegisterFiles) return;
+
       const selectedCompetition = competitions.find(c => c.id === selectedCompId);
       const duplicateExists = (selectedCompetition?.participants || []).some((participant: any) =>
           String(participant.userId || '') === String(userProfile?.id || '') &&
@@ -188,24 +189,22 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
       setUploading(true);
       try {
           const uploadedDocs: string[] = [];
-          if (registerFiles.length > 0) {
-              for (const file of registerFiles) {
-                  const content = await new Promise<string>((resolve, reject) => {
-                      const reader = new FileReader();
-                      reader.onload = () => resolve(String(reader.result).split(',')[1]);
-                      reader.onerror = () => reject(reader.error);
-                      reader.readAsDataURL(file);
-                  });
-                  const data = await apiRequest('/files', 'POST', {
-                      name: file.name,
-                      contentType: file.type || 'application/octet-stream',
-                      content,
-                  });
-                  uploadedDocs.push(data.id);
-              }
+          for (const file of registerFiles) {
+              const content = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(String(reader.result).split(',')[1]);
+                  reader.onerror = () => reject(reader.error);
+                  reader.readAsDataURL(file);
+              });
+              const data = await apiRequest('/files', 'POST', {
+                  name: file.name,
+                  contentType: file.type || 'application/octet-stream',
+                  content,
+              });
+              uploadedDocs.push(data.id);
           }
 
-          await apiRequest(`/competitions/${selectedCompId}/register`, 'POST', { 
+          await apiRequest(`/competitions/${selectedCompId}/register`, 'POST', {
               dogId: selectedDogId,
               category: selectedCategory,
               handlerName: handlerName.trim() || undefined,
@@ -228,21 +227,18 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
   const addRegisterFiles = (selectedFiles: File[]) => {
       setRegisterFiles(currentFiles => {
           const result = [...currentFiles];
-
           selectedFiles.forEach(file => {
               const alreadyAdded = result.some(existingFile =>
                   existingFile.name === file.name &&
                   existingFile.size === file.size &&
                   existingFile.lastModified === file.lastModified
               );
-
               if (!alreadyAdded) result.push(file);
           });
-
           return result;
       });
   };
-  
+
   const formatDate = (dateString?: string, endDateString?: string) => {
       if (!dateString) return 'Дата не визначена';
       const start = new Date(dateString).toLocaleDateString('uk-UA');
@@ -270,10 +266,7 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
             <p className="text-base sm:text-lg text-gray-600">Майбутні змагання з пошуково-рятувальної кінології</p>
         </div>
         {isOrganizer && (
-            <button 
-                onClick={() => { setSelectedCompForEdit(undefined); setIsModalOpen(true); }}
-                className="w-full sm:w-auto px-6 py-3 bg-[#007AFF] hover:bg-[#0066CC] text-white rounded-xl cursor-pointer transition-all duration-300 flex items-center justify-center gap-2"
-            >
+            <button onClick={() => { setSelectedCompForEdit(undefined); setIsModalOpen(true); }} className="w-full sm:w-auto px-6 py-3 bg-[#007AFF] hover:bg-[#0066CC] text-white rounded-xl cursor-pointer transition-all duration-300 flex items-center justify-center gap-2">
                 <Plus size={20} /> Створити змагання
             </button>
         )}
@@ -294,85 +287,31 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
                              {comp.organizerName && <Badge variant="outline" className="text-gray-600 border-gray-300 text-[16px] shrink-0">{comp.organizerName}</Badge>}
                         </div>
                         <div className="flex flex-wrap gap-4 text-gray-700 text-base mb-4">
-                            <span className="flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200 text-sm sm:text-base">
-                                <Calendar size={18} className="text-[#007AFF] shrink-0" /> 
-                                <span className="truncate text-[16px]">{formatDate(comp.startDate || comp.date, comp.endDate)}</span>
-                            </span>
-                            <span className="flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200 text-sm sm:text-base">
-                                <MapPin size={18} className="text-[#007AFF] shrink-0" /> 
-                                <span className="truncate text-[16px] min-w-0">{comp.location}</span>
-                            </span>
-                            <span className="flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200 text-sm sm:text-base shrink-0 text-[16px]">
-                                <Users size={18} className="text-[#007AFF]" /> {comp.participants?.length || 0} / {comp.maxParticipants}
-                            </span>
+                            <span className="flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200 text-sm sm:text-base"><Calendar size={18} className="text-[#007AFF] shrink-0" /><span className="truncate text-[16px]">{formatDate(comp.startDate || comp.date, comp.endDate)}</span></span>
+                            <span className="flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200 text-sm sm:text-base"><MapPin size={18} className="text-[#007AFF] shrink-0" /><span className="truncate text-[16px] min-w-0">{comp.location}</span></span>
+                            <span className="flex items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200 text-sm sm:text-base shrink-0 text-[16px]"><Users size={18} className="text-[#007AFF]" /> {comp.participants?.length || 0} / {comp.maxParticipants}</span>
                         </div>
-
-                        {comp.judges && comp.judges.length > 0 && (
-                            <div className="text-base text-gray-600 mb-4 break-words">
-                                <span className="font-semibold text-gray-700">Судді:</span> {comp.judges.join(', ')}
-                            </div>
-                        )}
-                        <div className="mb-4">
-                            <p className="text-gray-700 leading-relaxed whitespace-pre-wrap text-base break-words">{comp.description}</p>
-                        </div>
+                        {comp.judges && comp.judges.length > 0 && <div className="text-base text-gray-600 mb-4 break-words"><span className="font-semibold text-gray-700">Судді:</span> {comp.judges.join(', ')}</div>}
+                        <div className="mb-4"><p className="text-gray-700 leading-relaxed whitespace-pre-wrap text-base break-words">{comp.description}</p></div>
                         <div className="flex flex-wrap gap-2 mb-2">
                              <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-none px-3 py-1 text-sm font-normal text-[16px]">Рівень: {comp.level}</Badge>
-                             {comp.categories && comp.categories.map((cat, idx) => (
-                                 <Badge key={idx} variant="outline" className="border-blue-300 text-blue-700 text-sm font-normal text-[16px]">{cat}</Badge>
-                             ))}
+                             {comp.categories && comp.categories.map((cat, idx) => <Badge key={idx} variant="outline" className="border-blue-300 text-blue-700 text-sm font-normal text-[16px]">{cat}</Badge>)}
                         </div>
-
                         <div className="mb-3">
                             {canEditCompetition(comp, userProfile) ? (
-                                <NativeSelect
-                                    wrapperClassName="max-w-[340px]"
-                                    value={comp.status || 'planned'}
-                                    onChange={(e) => handleStatusChange(comp.id, e.target.value)}
-                                    className={`${getStatusConfig(comp.status || 'planned').color} border-none font-medium hover:opacity-80`}
-                                >
-                                    <option value="planned">Реєстрація скоро відкриється</option>
-                                    <option value="registration_open">Йде реєстрація</option>
-                                    <option value="registration_closed">Реєстрація завершена</option>
-                                    <option value="completed">Завершені</option>
-                                    <option value="cancelled">Скасовані</option>
+                                <NativeSelect wrapperClassName="max-w-[340px]" value={comp.status || 'planned'} onChange={(e) => handleStatusChange(comp.id, e.target.value)} className={`${getStatusConfig(comp.status || 'planned').color} border-none font-medium hover:opacity-80`}>
+                                    <option value="planned">Реєстрація скоро відкриється</option><option value="registration_open">Йде реєстрація</option><option value="registration_closed">Реєстрація завершена</option><option value="completed">Завершені</option><option value="cancelled">Скасовані</option>
                                 </NativeSelect>
-                            ) : (
-                                <Badge className={`${getStatusConfig(comp.status || 'planned').color} border-none px-3 py-1.5 text-sm font-medium text-[16px]`}>
-                                    {getStatusConfig(comp.status || 'planned').label}
-                                </Badge>
-                            )}
+                            ) : <Badge className={`${getStatusConfig(comp.status || 'planned').color} border-none px-3 py-1.5 text-sm font-medium text-[16px]`}>{getStatusConfig(comp.status || 'planned').label}</Badge>}
                         </div>
                     </div>
-
                     <div className="flex flex-col gap-3 justify-end md:w-[220px] border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6 shrink-0">
                          {canEditCompetition(comp, userProfile) ? (
-                             <>
-                                <Button className="w-full bg-[#007AFF] hover:bg-[#0066CC] text-white gap-2 h-11 text-base" onClick={() => openManage(comp)}>
-                                    <Settings size={18} /> Керувати
-                                </Button>
-                                <Button variant="outline" className="w-full bg-transparent border-[#007AFF] text-[#007AFF] hover:bg-blue-50 gap-2 h-11 text-base" onClick={() => openEdit(comp)}>
-                                    <Edit size={18} /> Редагувати
-                                </Button>
-                                <Button variant="destructive" className="w-full gap-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-300 h-11 text-base" onClick={() => handleDeleteClick(comp.id)}>
-                                    <Trash2 size={18} /> Видалити
-                                </Button>
-                             </>
+                             <><Button className="w-full bg-[#007AFF] hover:bg-[#0066CC] text-white gap-2 h-11 text-base" onClick={() => openManage(comp)}><Settings size={18} /> Керувати</Button><Button variant="outline" className="w-full bg-transparent border-[#007AFF] text-[#007AFF] hover:bg-blue-50 gap-2 h-11 text-base" onClick={() => openEdit(comp)}><Edit size={18} /> Редагувати</Button><Button variant="destructive" className="w-full gap-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-300 h-11 text-base" onClick={() => handleDeleteClick(comp.id)}><Trash2 size={18} /> Видалити</Button></>
                          ) : isCompletedOrganizerView(comp, userProfile) ? (
-                             <div className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl text-center border border-gray-300 font-medium text-base">
-                                Лише перегляд
-                             </div>
+                             <div className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl text-center border border-gray-300 font-medium text-base">Лише перегляд</div>
                          ) : (
-                             <>
-                                {comp.status === 'registration_open' ? (
-                                    userProfile?.role !== 'organizer' ? (
-                                     <button onClick={() => openRegister(comp.id)} className="w-full py-3 bg-[#007AFF] hover:bg-[#0066CC] text-white rounded-xl font-medium cursor-pointer transition-all duration-300 text-base">
-                                        Зареєструватися
-                                     </button>
-                                    ) : null
-                                 ) : (
-                                     <div className="w-full py-3 bg-gray-100 text-gray-500 rounded-xl text-center border border-gray-300 font-medium text-base">{comp.status === 'cancelled' ? 'Змагання скасовано' : 'Реєстрація закрита'}</div>
-                                 )}
-                             </>
+                             <>{comp.status === 'registration_open' ? (userProfile?.role !== 'organizer' ? <button onClick={() => openRegister(comp.id)} className="w-full py-3 bg-[#007AFF] hover:bg-[#0066CC] text-white rounded-xl font-medium cursor-pointer transition-all duration-300 text-base">Зареєструватися</button> : null) : <div className="w-full py-3 bg-gray-100 text-gray-500 rounded-xl text-center border border-gray-300 font-medium text-base">{comp.status === 'cancelled' ? 'Змагання скасовано' : 'Реєстрація закрита'}</div>}</>
                          )}
                     </div>
                 </div>
@@ -380,131 +319,51 @@ export default function CompetitionsPage({ isLoggedIn, userProfile, showToast, o
         </div>
       )}
 
-      <CompetitionModal 
-        isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); setSelectedCompForEdit(undefined); }}
-        onSave={handleCreate}
-        editingComp={selectedCompForEdit}
-      />
-      
+      <CompetitionModal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setSelectedCompForEdit(undefined); }} onSave={handleCreate} editingComp={selectedCompForEdit} />
+
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent className="bg-white border-gray-200 text-gray-900">
-            <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-red-600 text-xl">
-                <AlertTriangle className="w-6 h-6" />
-                Видалити змагання?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-gray-600 text-base">
-                Ця дія незворотна. Це змагання та всі реєстрації будуть видалені назавжди.
-            </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-            <AlertDialogCancel className="bg-white border-gray-300 text-gray-700 hover:bg-gray-100">Скасувати</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-red-600 text-white hover:bg-red-700 border-none">Видалити</AlertDialogAction>
-            </AlertDialogFooter>
+            <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2 text-red-600 text-xl"><AlertTriangle className="w-6 h-6" />Видалити змагання?</AlertDialogTitle><AlertDialogDescription className="text-gray-600 text-base">Ця дія незворотна. Це змагання та всі реєстрації будуть видалені назавжди.</AlertDialogDescription></AlertDialogHeader>
+            <AlertDialogFooter><AlertDialogCancel className="bg-white border-gray-300 text-gray-700 hover:bg-gray-100">Скасувати</AlertDialogCancel><AlertDialogAction onClick={confirmDelete} className="bg-red-600 text-white hover:bg-red-700 border-none">Видалити</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       {registerModalOpen && (
           <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4">
             <div className="bg-white p-5 sm:p-8 rounded-2xl max-w-md w-full border border-gray-200 shadow-xl max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl text-gray-900 font-semibold text-[24px]">Реєстрація на змагання</h3>
-                    <button onClick={() => setRegisterModalOpen(false)} className="text-gray-600 hover:text-gray-900 transition-colors">
-                        <X size={24} />
-                    </button>
-                </div>
-                
-                <div className="mb-5">
-                    <label className="block text-base text-gray-900 mb-2 font-medium">Собака</label>
-                    <NativeSelect value={selectedDogId} onChange={(e) => setSelectedDogId(e.target.value)}>
-                        {userDogs.map(d => (
-                            <option key={d.id} value={d.id}>{d.name} ({d.breed || d.pedigree})</option>
-                        ))}
-                    </NativeSelect>
-                </div>
-
-                <div className="mb-5">
-                    <label className="block text-base text-gray-900 mb-2 font-medium">Клас / Категорія</label>
-                    <NativeSelect value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
-                        <option value="">Оберіть клас</option>
-                        {competitions.find(c => c.id === selectedCompId)?.categories?.map((cat, idx) => (
-                            <option key={idx} value={cat}>{cat}</option>
-                        ))}
-                    </NativeSelect>
-                </div>
-
-                <div className="mb-5">
-                    <label className="block text-base text-gray-900 mb-2 font-medium">Провідник собаки (якщо інший)</label>
-                    <input 
-                        type="text"
-                        className="w-full p-3 bg-white border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:border-[#007AFF] text-base placeholder:text-gray-400"
-                        value={handlerName}
-                        onChange={(e) => setHandlerName(e.target.value)}
-                        placeholder="Залиште порожнім, якщо ви провідник"
-                    />
-                </div>
+                <div className="flex justify-between items-center mb-6"><h3 className="text-xl text-gray-900 font-semibold text-[24px]">Реєстрація на змагання</h3><button onClick={() => setRegisterModalOpen(false)} className="text-gray-600 hover:text-gray-900 transition-colors"><X size={24} /></button></div>
+                <div className="mb-5"><label className="block text-base text-gray-900 mb-2 font-medium">Собака</label><NativeSelect value={selectedDogId} onChange={(e) => setSelectedDogId(e.target.value)}>{userDogs.map(d => <option key={d.id} value={d.id}>{d.name} ({d.breed || d.pedigree})</option>)}</NativeSelect></div>
+                <div className="mb-5"><label className="block text-base text-gray-900 mb-2 font-medium">Клас / Категорія</label><NativeSelect value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}><option value="">Оберіть клас</option>{competitions.find(c => c.id === selectedCompId)?.categories?.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}</NativeSelect></div>
+                <div className="mb-5"><label className="block text-base text-gray-900 mb-2 font-medium">Провідник собаки (якщо інший)</label><input type="text" className="w-full p-3 bg-white border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:border-[#007AFF] text-base placeholder:text-gray-400" value={handlerName} onChange={(e) => setHandlerName(e.target.value)} placeholder="Залиште порожнім, якщо ви провідник" /></div>
 
                 <div className="mb-6 sm:mb-8">
                     <label className="block text-base text-gray-900 mb-2 font-medium">Документи (квитанція, робоча книжка)</label>
                     <div className="relative">
-                        <input 
-                            type="file" 
-                            multiple
-                            onChange={(e) => {
-                                if (e.target.files) {
-                                    addRegisterFiles(Array.from(e.target.files));
-                                    e.target.value = '';
-                                }
-                            }}
-                            className="hidden"
-                            id="file-upload"
-                        />
-                        <label 
-                            htmlFor="file-upload"
-                            className={`flex items-center justify-center gap-2 w-full p-4 bg-white border-2 border-dashed rounded-xl cursor-pointer transition-all ${registerFiles.length > 0 ? 'border-[#007AFF] text-[#007AFF]' : 'border-gray-300 text-gray-600 hover:border-[#007AFF] hover:text-gray-900'} text-base`}
-                        >
-                            <Upload size={20} />
-                            {registerFiles.length > 0 ? 'Додати ще файли' : 'Завантажити файли'}
-                        </label>
+                        <input type="file" multiple onChange={(e) => { if (e.target.files) { addRegisterFiles(Array.from(e.target.files)); e.target.value = ''; } }} className="hidden" id="file-upload" />
+                        <label htmlFor="file-upload" className={`flex items-center justify-center gap-2 w-full p-4 bg-white border-2 border-dashed rounded-xl cursor-pointer transition-all ${registerFiles.length > 0 ? 'border-[#007AFF] text-[#007AFF]' : 'border-gray-300 text-gray-600 hover:border-[#007AFF] hover:text-gray-900'} text-base`}><Upload size={20} />{registerFiles.length > 0 ? 'Додати ще файли' : 'Завантажити файли'}</label>
                     </div>
 
                     {registerFiles.length > 0 && (
                         <div className="mt-3 space-y-2">
-                            {registerFiles.map((file, index) => (
-                                <div key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
-                                    <span className="min-w-0 flex-1 truncate text-sm text-gray-700" title={file.name}>{file.name}</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => removeRegisterFile(index)}
-                                        disabled={uploading}
-                                        className="shrink-0 rounded-lg p-2 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                        aria-label={`Видалити файл ${file.name}`}
-                                        title="Видалити файл"
-                                    >
-                                        <Trash2 size={18} />
-                                    </button>
-                                </div>
-                            ))}
+                            {registerFiles.map((file, index) => {
+                                const isTooLarge = file.size > MAX_REGISTER_FILE_SIZE;
+                                return (
+                                    <div key={`${file.name}-${file.lastModified}-${index}`} className={`rounded-xl border px-3 py-2.5 ${isTooLarge ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className={`min-w-0 flex-1 truncate text-sm ${isTooLarge ? 'text-red-700' : 'text-gray-700'}`} title={file.name}>{file.name}</span>
+                                            <button type="button" onClick={() => removeRegisterFile(index)} disabled={uploading} className="shrink-0 rounded-lg p-2 text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Видалити файл ${file.name}`} title="Видалити файл"><Trash2 size={18} /></button>
+                                        </div>
+                                        {isTooLarge && <p className="mt-1 text-sm text-red-600">Максимальний розмір файлу — 4 MB</p>}
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3">
-                    <button 
-                        onClick={handleRegister}
-                        disabled={uploading}
-                        className="flex-1 py-3 bg-[#007AFF] hover:bg-[#0066CC] text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 text-base"
-                    >
-                        {uploading ? 'Обробка...' : 'Підтвердити'}
-                    </button>
-                    <button 
-                        onClick={() => setRegisterModalOpen(false)}
-                        disabled={uploading}
-                        className="flex-1 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors text-base"
-                    >
-                        Скасувати
-                    </button>
+                    <button onClick={handleRegister} disabled={uploading || hasInvalidRegisterFiles} className="flex-1 py-3 bg-[#007AFF] hover:bg-[#0066CC] text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 text-base">{uploading ? 'Обробка...' : 'Підтвердити'}</button>
+                    <button onClick={() => setRegisterModalOpen(false)} disabled={uploading} className="flex-1 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors text-base">Скасувати</button>
                 </div>
             </div>
           </div>
