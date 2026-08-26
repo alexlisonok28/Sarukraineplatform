@@ -20,8 +20,6 @@ export type Dog = {
 export type Breed = {
   id: number;
   name: string;
-  fciGroupNumber?: number;
-  breedNumber?: number;
 };
 
 export type UserRole = 'user' | 'organizer' | 'admin';
