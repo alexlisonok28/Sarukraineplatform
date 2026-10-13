@@ -64,8 +64,8 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-5" onMouseDown={() => setBreedOpen(false)}>
-      <div className="bg-white shadow-xl rounded-[20px] p-8 max-w-[600px] w-full max-h-[90vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-5" onClick={() => setBreedOpen(false)}>
+      <div className="bg-white shadow-xl rounded-[20px] p-8 max-w-[600px] w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-gray-900 font-semibold">{editingDog ? 'Редагувати собаку' : 'Додати собаку'}</h2>
           <button type="button" className="bg-none border-none text-gray-600 cursor-pointer p-0 w-8 h-8 flex items-center justify-center hover:text-gray-900" onClick={onClose}><X className="w-6 h-6" /></button>
@@ -86,7 +86,7 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
               <button type="button" aria-label="Відкрити список порід" onClick={() => setBreedOpen(!breedOpen)} className="absolute right-0 top-0 h-full w-11 flex items-center justify-center text-gray-500 bg-transparent border-0 cursor-pointer"><ChevronDown className={`w-5 h-5 transition-transform ${breedOpen ? 'rotate-180' : ''}`} /></button>
             </div>
             {breedOpen && <div className="absolute z-50 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-[10px] shadow-lg">
-              {filteredBreeds.length ? filteredBreeds.map(breed => <button key={breed.id} type="button" onClick={() => selectBreed(breed)} className="w-full px-4 py-3 flex items-center justify-between text-left bg-white border-0 hover:bg-gray-50 cursor-pointer text-gray-900">
+              {filteredBreeds.length ? filteredBreeds.map(breed => <button key={breed.id} type="button" onMouseDown={e => { e.preventDefault(); selectBreed(breed); }} onClick={() => selectBreed(breed)} className="w-full px-4 py-3 flex items-center justify-between text-left bg-white border-0 hover:bg-gray-50 cursor-pointer text-gray-900">
                 <span>{breed.name}</span>{formData.breedId === breed.id && <Check className="w-4 h-4 text-[#007AFF] shrink-0" />}
               </button>) : <div className="px-4 py-3 text-gray-500">Породу не знайдено</div>}
             </div>}
