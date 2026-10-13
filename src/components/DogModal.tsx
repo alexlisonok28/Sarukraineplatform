@@ -18,6 +18,7 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
   const [breeds, setBreeds] = useState<Breed[]>([]);
   const [breedSearch, setBreedSearch] = useState('');
   const [breedOpen, setBreedOpen] = useState(false);
+  const [breedSelected, setBreedSelected] = useState(false);
   const breedInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: '', birth: '', gender: '' as 'male' | 'female' | '', breed: '', breedId: undefined as number | undefined,
@@ -42,7 +43,8 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
       setBreedSearch('');
     }
     setBreedOpen(false);
-  }, [editingDog, isOpen]);
+    setBreedSelected(Boolean(editingDog?.breedId));
+  }, [editingDog?.id, isOpen]);
 
   const filteredBreeds = useMemo(() => {
     const query = breedSearch.trim().toLocaleLowerCase('uk-UA');
@@ -53,6 +55,7 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
   const selectBreed = (breed: Breed) => {
     setFormData(prev => ({ ...prev, breedId: breed.id, breed: breed.name }));
     setBreedSearch(breed.name);
+    setBreedSelected(true);
     setBreedOpen(false);
   };
 
@@ -81,13 +84,13 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
             <label className="block text-base text-gray-900 mb-2 font-medium">Порода</label>
             <div className="relative">
               <input ref={breedInputRef} type="text" className={`${inputClassName} pr-11`} value={breedSearch} placeholder="Оберіть або знайдіть породу"
-                onFocus={() => setBreedOpen(true)}
-                onChange={e => { setBreedSearch(e.target.value); setFormData({...formData,breed:'',breedId:undefined}); setBreedOpen(true); }}
+                onClick={() => { if (!breedSelected) setBreedOpen(true); }}
+                onChange={e => { setBreedSearch(e.target.value); setBreedSelected(false); setFormData(prev => ({...prev,breed:'',breedId:undefined})); setBreedOpen(true); }}
                 autoComplete="off" required />
               <button type="button" aria-label="Відкрити список порід" onClick={() => setBreedOpen(!breedOpen)} className="absolute right-0 top-0 h-full w-11 flex items-center justify-center text-gray-500 bg-transparent border-0 cursor-pointer"><ChevronDown className={`w-5 h-5 transition-transform ${breedOpen ? 'rotate-180' : ''}`} /></button>
             </div>
             {breedOpen && <div className="absolute z-50 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-[10px] shadow-lg">
-              {filteredBreeds.length ? filteredBreeds.map(breed => <button key={breed.id} type="button" onPointerDown={e => { e.preventDefault(); e.stopPropagation(); selectBreed(breed); breedInputRef.current?.blur(); }} className="w-full px-4 py-3 flex items-center justify-between text-left bg-white border-0 hover:bg-gray-50 cursor-pointer text-gray-900">
+              {filteredBreeds.length ? filteredBreeds.map(breed => <button key={breed.id} type="button" onClick={e => { e.stopPropagation(); selectBreed(breed); }} className="w-full px-4 py-3 flex items-center justify-between text-left bg-white border-0 hover:bg-gray-50 cursor-pointer text-gray-900">
                 <span>{breed.name}</span>{formData.breedId === breed.id && <Check className="w-4 h-4 text-[#007AFF] shrink-0" />}
               </button>) : <div className="px-4 py-3 text-gray-500">Породу не знайдено</div>}
             </div>}
