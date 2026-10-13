@@ -210,7 +210,7 @@ export default function CabinetPage({ userProfile, setUserProfile, onPageChange,
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white shadow-sm rounded-2xl p-8 p-[24px]">
                 <h3 className="text-gray-900 mb-6 text-xl font-semibold">Особисті дані</h3>
-                <form onSubmit={saveProfile}>
+                <form data-no-draft onSubmit={saveProfile}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
                     <div>
                       <label className="block text-base text-gray-900 mb-2 font-medium">Ім'я і прізвище</label>
@@ -249,7 +249,7 @@ export default function CabinetPage({ userProfile, setUserProfile, onPageChange,
 
               <div className="bg-white shadow-sm rounded-2xl p-8 p-[24px]">
                 <h3 className="text-gray-900 mb-6 text-xl font-semibold">Зміна пароля</h3>
-                <form onSubmit={changePassword}>
+                <form data-no-draft onSubmit={changePassword}>
                   <div className="mb-5">
                     <label className="block text-base text-gray-900 mb-2 font-medium">Новий пароль</label>
                     <input name="new_password" type="password" className="w-full px-4 py-[14px] bg-white border border-gray-300 rounded-[10px] text-gray-900 transition-all duration-300 focus:outline-none focus:border-[#007AFF] text-base" required />
