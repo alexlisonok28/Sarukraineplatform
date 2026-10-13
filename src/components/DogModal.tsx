@@ -8,7 +8,7 @@ import { apiRequest } from '../utils/api';
 type DogModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (dog: Omit<Dog, 'id'>) => void;
+  onSave: (dog: Omit<Dog, 'id'>) => Promise<boolean>;
   editingDog?: Dog;
 };
 
@@ -19,6 +19,8 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
   const [breedSearch, setBreedSearch] = useState('');
   const [breedOpen, setBreedOpen] = useState(false);
   const [breedSelected, setBreedSelected] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [saving, setSaving] = useState(false);
   const breedInputRef = useRef<HTMLInputElement>(null);
   const breedContainerRef = useRef<HTMLDivElement>(null);
 
@@ -60,6 +62,8 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
       setBreedSearch('');
     }
     setBreedOpen(false);
+    setConfirmClose(false);
+    setSaving(false);
     setBreedSelected(Boolean(editingDog?.breedId));
   }, [editingDog?.id, isOpen]);
 
@@ -76,10 +80,31 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
     setBreedOpen(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const initialData = editingDog ? {
+    name: editingDog.name || '', birth: editingDog.birth || '', gender: editingDog.gender || '',
+    breed: editingDog.breed || '', breedId: editingDog.breedId,
+    pedigree: editingDog.pedigree || '', chip: editingDog.chip || '', workbook: editingDog.workbook || '',
+  } : { name: '', birth: '', gender: '', breed: '', breedId: undefined, pedigree: '', chip: '', workbook: '' };
+
+  const dirty = (Object.keys(initialData) as Array<keyof typeof initialData>).some(
+    key => (formData[key] ?? '') !== (initialData[key] ?? '')
+  );
+
+  const requestClose = () => {
+    if (saving) return;
+    if (dirty) setConfirmClose(true);
+    else onClose();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.gender === '' || !formData.breedId) return;
-    onSave(formData as Omit<Dog, 'id'>);
+    if (saving || formData.gender === '' || !formData.breedId) return;
+    setSaving(true);
+    try {
+      await onSave(formData as Omit<Dog, 'id'>);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -89,7 +114,7 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
       <div data-no-draft className="bg-white shadow-xl rounded-[20px] p-8 max-w-[600px] w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-gray-900 font-semibold">{editingDog ? 'Редагувати собаку' : 'Додати собаку'}</h2>
-          <button type="button" className="bg-none border-none text-gray-600 cursor-pointer p-0 w-8 h-8 flex items-center justify-center hover:text-gray-900" onClick={onClose}><X className="w-6 h-6" /></button>
+          <button type="button" className="bg-none border-none text-gray-600 cursor-pointer p-0 w-8 h-8 flex items-center justify-center hover:text-gray-900" onClick={requestClose}><X className="w-6 h-6" /></button>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -117,9 +142,21 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
           <div className="mb-5"><label className="block text-base text-gray-900 mb-2 font-medium">Номер родоводу</label><input type="text" className={inputClassName} value={formData.pedigree} onChange={e => setFormData({...formData,pedigree:e.target.value})} required /></div>
           <div className="mb-5"><label className="block text-base text-gray-900 mb-2 font-medium">Номер чіпу/клейма</label><input type="text" className={inputClassName} value={formData.chip} onChange={e => setFormData({...formData,chip:e.target.value})} required /></div>
           <div className="mb-5"><label className="block text-base text-gray-900 mb-2 font-medium">Номер робочої книжки</label><input type="text" className={inputClassName} value={formData.workbook} onChange={e => setFormData({...formData,workbook:e.target.value})} /></div>
-          <button type="submit" className="w-full px-4 py-4 bg-[#007AFF] hover:bg-[#0066CC] text-white border-none rounded-xl cursor-pointer text-base">Зберегти</button>
+          <button type="submit" disabled={saving} className="w-full px-4 py-4 bg-[#007AFF] hover:bg-[#0066CC] text-white border-none rounded-xl cursor-pointer text-base disabled:opacity-60">{saving ? 'Збереження...' : 'Зберегти'}</button>
         </form>
       </div>
+      {confirmClose && (
+        <div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-5" role="presentation">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="dog-unsaved-title" className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 id="dog-unsaved-title" className="text-xl font-semibold text-gray-900 mb-3">Незбережені зміни</h3>
+            <p className="text-gray-600 mb-6">Ви внесли зміни до даних собаки. Вийти без збереження?</p>
+            <div className="flex gap-3 justify-end">
+              <button type="button" className="px-4 py-3 rounded-lg bg-gray-100 text-gray-900" onClick={() => setConfirmClose(false)}>Продовжити редагування</button>
+              <button type="button" className="px-4 py-3 rounded-lg bg-red-600 text-white" onClick={() => { setConfirmClose(false); onClose(); }}>Вийти без збереження</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
