@@ -9,7 +9,7 @@ const PREFIX = 'sar-draft:';
 const isEligible = (element: Element): element is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement => {
   if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
   const readOnly = 'readOnly' in element ? Boolean(element.readOnly) : false;
-  if (element.hasAttribute('data-no-draft') || element.disabled || readOnly) return false;
+  if (element.closest('[data-no-draft]') || element.disabled || readOnly) return false;
   if (element instanceof HTMLInputElement && ['password', 'file', 'hidden', 'submit', 'button'].includes(element.type)) return false;
   return true;
 };
@@ -74,6 +74,8 @@ function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSe
 export function bindDraftPersistence(scope: string) {
   let restoring = false;
   let restoreTimer = 0;
+  const restoredFields = new WeakSet<Element>();
+  const touchedFields = new WeakSet<Element>();
 
   const restore = () => {
     const draft = readDraft(scope);
@@ -84,7 +86,10 @@ export function bindDraftPersistence(scope: string) {
     currentFields.forEach((element, index) => {
       const key = fieldKey(element, index);
       const saved = draft.find(item => item.key === key);
-      if (saved) setNativeValue(element, saved);
+      if (saved && !restoredFields.has(element) && !touchedFields.has(element)) {
+        restoredFields.add(element);
+        setNativeValue(element, saved);
+      }
     });
     restoring = false;
   };
@@ -96,6 +101,7 @@ export function bindDraftPersistence(scope: string) {
 
   const onFieldChange = (event: Event) => {
     if (restoring || !(event.target instanceof Element) || !isEligible(event.target)) return;
+    touchedFields.add(event.target);
     writeDraft(scope);
   };
 
@@ -116,7 +122,10 @@ export function bindDraftPersistence(scope: string) {
         }
       }
     }
-    scheduleRestore();
+    // Restore only for newly mounted fields; never overwrite a field already edited.
+    if (mutations.some(mutation => Array.from(mutation.addedNodes).some(node =>
+      node instanceof Element && (node.matches('input, textarea, select') || node.querySelector('input, textarea, select'))
+    ))) scheduleRestore();
   });
 
   document.addEventListener('input', onFieldChange, true);
