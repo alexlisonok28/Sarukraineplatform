@@ -69,7 +69,11 @@ export default function CabinetPage({ userProfile, setUserProfile, onPageChange,
           showToast('Собаку додано!', 'success');
         }
         closeDogModal();
-    } catch (e) { showToast('Помилка збереження', 'error'); }
+        return true;
+    } catch (e) {
+        showToast('Помилка збереження', 'error');
+        return false;
+    }
   };
 
   const deleteDog = async (dogId: string) => {
