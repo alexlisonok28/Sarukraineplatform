@@ -69,7 +69,7 @@ export default function DogModal({ isOpen, onClose, onSave, editingDog }: DogMod
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-5" onClick={() => setBreedOpen(false)}>
-      <div className="bg-white shadow-xl rounded-[20px] p-8 max-w-[600px] w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div data-no-draft className="bg-white shadow-xl rounded-[20px] p-8 max-w-[600px] w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-gray-900 font-semibold">{editingDog ? 'Редагувати собаку' : 'Додати собаку'}</h2>
           <button type="button" className="bg-none border-none text-gray-600 cursor-pointer p-0 w-8 h-8 flex items-center justify-center hover:text-gray-900" onClick={onClose}><X className="w-6 h-6" /></button>
